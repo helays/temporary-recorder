@@ -21,16 +21,10 @@
 
 ## 安装
 
-下载 `闪记_0.1.0_x64-setup.exe` 双击安装。装到 `C:\Program Files\闪记`，
-开始菜单快捷方式建在 All Users，需要管理员权限（会弹一次 UAC）。
+下载 `闪记_0.1.0_x64-setup.exe` 双击安装（会弹一次 UAC，需要管理员权限）。
+**卸载不会删除你的记录**：`recorder.db` 与临时目录都会保留。
 
-```powershell
-& "闪记_0.1.0_x64-setup.exe" /S                 # 静默安装（弹 UAC）
-& "C:\Program Files\闪记\uninstall.exe" /S      # 静默卸载（弹 UAC）
-```
-
-> **卸载不会删除你的记录。** 卸载向导上的「Delete app data」默认不勾选，
-> 静默卸载 `/S` 同样保留 `recorder.db` 与临时目录。
+> 静默安装 / 卸载命令、安装路径见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 ## 快速上手
 
