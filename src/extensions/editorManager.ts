@@ -20,15 +20,14 @@ import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { closeBrackets } from "@codemirror/autocomplete";
 import { history } from "@codemirror/commands";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { oneDark } from "@codemirror/theme-one-dark";
 import { json } from "@codemirror/lang-json";
 import { yaml } from "@codemirror/lang-yaml";
 import { detectFormat } from "../services/format";
-import type { DocFormat } from "../types/models";
+import type { DocFormat, ResolvedTheme } from "../types/models";
 import { LARGE_CONTENT_THRESHOLD } from "../utils/text";
 import { debounce, type Debounced } from "../utils/debounce";
 import { appKeymap, type AppKeymapHandlers } from "./keymap";
-import { editorTheme } from "./theme";
+import { editorThemeExtension } from "./theme";
 
 /** 用户停止输入 800ms 后把当前标签内容落库 */
 export const CONTENT_SAVE_DELAY = 800;
@@ -106,6 +105,9 @@ class EditorManager {
   private scrollTops = new Map<string, number>();
   private activeTabId: string | null = null;
   private languageCompartment = new Compartment();
+  private themeCompartment = new Compartment();
+  /** 当前主题；切换时通过 Compartment 热替换，不重建 EditorState */
+  private theme: ResolvedTheme = "light";
   private removeScrollListener: (() => void) | null = null;
   /** 串行化激活，避免快速切换标签时后发先至 */
   private activation: Promise<void> = Promise.resolve();
@@ -114,13 +116,25 @@ class EditorManager {
     this.hooks = hooks;
   }
 
+  /**
+   * 切换编辑器主题。
+   * 由 React 效果调用（不在 CodeMirror 的 update 过程中），因此可以直接 dispatch。
+   */
+  setTheme(theme: ResolvedTheme): void {
+    if (this.theme === theme) return;
+    this.theme = theme;
+    this.view?.dispatch({
+      effects: this.themeCompartment.reconfigure(editorThemeExtension(theme)),
+    });
+  }
+
   /** 挂载 EditorView；重复调用会先销毁旧实例（React StrictMode 下会发生） */
   attach(container: HTMLElement): void {
     if (this.view !== null) this.detach();
     const view = new EditorView({
       state: EditorState.create({
         doc: "",
-        extensions: [lineNumbers(), oneDark, editorTheme],
+        extensions: [lineNumbers(), editorThemeExtension(this.theme)],
       }),
       parent: container,
     });
@@ -171,8 +185,7 @@ class EditorManager {
       EditorView.lineWrapping,
       // 语言扩展通过 Compartment 装载，便于大文件时热插拔
       this.languageCompartment.of(language),
-      oneDark,
-      editorTheme,
+      this.themeCompartment.of(editorThemeExtension(this.theme)),
       appKeymap(hooks.keymapHandlers),
       keymap.of(searchKeymap),
       EditorView.updateListener.of((update) => {

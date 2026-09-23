@@ -83,7 +83,7 @@ export function TabBar() {
   };
 
   return (
-    <div className="flex h-9 shrink-0 items-stretch border-b border-neutral-700 bg-neutral-950">
+    <div className="flex h-9 shrink-0 items-stretch border-b border-app-border bg-app-panel">
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -94,7 +94,7 @@ export function TabBar() {
           items={tabs.map((tab) => tab.id)}
           strategy={horizontalListSortingStrategy}
         >
-          <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
+          <div className="tabstrip flex min-w-0 flex-1 items-stretch overflow-x-auto">
             {tabs.map((tab) => (
               <SortableTabItem
                 key={tab.id}
@@ -110,9 +110,9 @@ export function TabBar() {
       </DndContext>
       <button
         type="button"
-        title="新建标签 (Ctrl+T)"
+        title="新建标签 (Ctrl+N / Ctrl+T)"
         onClick={() => void createTab()}
-        className="shrink-0 border-l border-neutral-700 px-3 text-sm text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+        className="shrink-0 border-l border-app-border px-3 text-sm text-app-muted hover:bg-app-hover hover:text-app-fg"
       >
         +
       </button>

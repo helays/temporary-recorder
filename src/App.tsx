@@ -14,7 +14,10 @@ import {
   startWindowGeometryTracking,
 } from "./services/session";
 import { writeActiveTab, writeWindowGeometry } from "./services/sessionRepo";
+import { getAllSettings } from "./services/settingsRepo";
 import { updateTabCaret, updateTabContent } from "./services/tabsRepo";
+import { applyThemeToDocument, watchSystemTheme } from "./services/theme";
+import { resolveTheme, useSettingsStore } from "./stores/settingsStore";
 import { useStatusStore } from "./stores/statusStore";
 import { useTabsStore } from "./stores/tabsStore";
 
@@ -110,6 +113,15 @@ async function installCloseHandler(): Promise<() => void> {
 
 function App() {
   const [ready, setReady] = useState(false);
+  const themePref = useSettingsStore((state) => state.themePref);
+  const systemTheme = useSettingsStore((state) => state.systemTheme);
+
+  // 应用主题到文档与编辑器。窗口在启动完成前是隐藏的，所以这里不会闪。
+  useEffect(() => {
+    const resolved = resolveTheme(themePref, systemTheme);
+    applyThemeToDocument(resolved);
+    editorManager.setTheme(resolved);
+  }, [themePref, systemTheme]);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,6 +134,16 @@ function App() {
       await initDb();
       const dbPath = await getDbPath();
       if (dbPath !== null) console.info(`[db] 数据库位置：${dbPath}`);
+
+      // 先读设置：主题要在渲染前就位
+      const settings = await getAllSettings();
+      useSettingsStore.getState().hydrate(settings);
+
+      disposers.push(
+        await watchSystemTheme((theme) =>
+          useSettingsStore.getState().setSystemTheme(theme),
+        ),
+      );
 
       const { tabs, activeTabId, session } = await restoreSession();
 
@@ -175,14 +197,14 @@ function App() {
 
   if (!ready) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-neutral-900 text-xs text-neutral-500">
+      <div className="flex h-screen w-screen items-center justify-center bg-app-bg text-xs text-app-muted">
         正在恢复上次的标签…
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-neutral-900 text-neutral-100">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-app-bg text-app-fg">
       <TabBar />
       <Editor />
       <StatusBar />

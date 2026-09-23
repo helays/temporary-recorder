@@ -1,1 +1,71 @@
 @import "tailwindcss";
+
+/*
+ * 语义化主题变量。
+ *
+ * 组件只使用 bg-app-bg / text-app-fg 这类语义类，不在每个组件里散落 dark: 变体，
+ * 这样加一套主题只需要改这里。
+ *
+ * 深色配色刻意取自 one-dark（CodeMirror 的主题），让编辑器与外壳浑然一体；
+ * 浅色偏 GitHub 风格。
+ */
+:root {
+  --app-bg: #ffffff;
+  --app-panel: #f6f7f9;
+  --app-fg: #24292f;
+  --app-muted: #6e7781;
+  --app-border: #d0d7de;
+  --app-accent: #0969da;
+  --app-danger: #cf222e;
+  --app-warn: #9a6700;
+  --app-hover: rgba(0, 0, 0, 0.06);
+  color-scheme: light;
+}
+
+.dark {
+  --app-bg: #282c34;
+  --app-panel: #21252b;
+  --app-fg: #abb2bf;
+  --app-muted: #7f848e;
+  --app-border: #3a3f4b;
+  --app-accent: #61afef;
+  --app-danger: #e06c75;
+  --app-warn: #e5c07b;
+  --app-hover: rgba(255, 255, 255, 0.08);
+  color-scheme: dark;
+}
+
+/* 把主题变量暴露成 Tailwind 工具类：bg-app-bg / text-app-fg / border-app-border … */
+@theme inline {
+  --color-app-bg: var(--app-bg);
+  --color-app-panel: var(--app-panel);
+  --color-app-fg: var(--app-fg);
+  --color-app-muted: var(--app-muted);
+  --color-app-border: var(--app-border);
+  --color-app-accent: var(--app-accent);
+  --color-app-danger: var(--app-danger);
+  --color-app-warn: var(--app-warn);
+  --color-app-hover: var(--app-hover);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/*
+ * 标签栏横向溢出时隐藏原生滚动条（Windows 上尤其丑），
+ * 改为配合滚轮横向滚动，见 TabBar。
+ */
+.tabstrip {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* 旧 Edge */
+  overscroll-behavior-x: contain; /* 避免滚动穿透到页面 */
+}
+
+.tabstrip::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}

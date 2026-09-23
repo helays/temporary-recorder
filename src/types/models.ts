@@ -46,3 +46,10 @@ export type FormatResult =
 
 /** 编辑器支持的文档格式 */
 export type DocFormat = "json" | "yaml" | "text";
+
+/** 主题偏好：跟随系统 / 强制浅色 / 强制深色 */
+export type ThemePref = "system" | "light" | "dark";
+
+/** 实际渲染使用的主题 */
+export type ResolvedTheme = "light" | "dark";
+
