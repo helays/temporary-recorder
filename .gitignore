@@ -1,6 +1,9 @@
 # 临时文件目录（禁止提交）
 runtime/
 
+# 本机 cargo 镜像配置（仅本机生效，见该文件内的说明）
+.cargo/config.toml
+
 # Node
 node_modules/
 dist/
