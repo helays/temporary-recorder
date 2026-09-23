@@ -432,8 +432,26 @@ Ctrl+F / Ctrl+P / Ctrl+R / F12）。**如果哪天这个开关被去掉或调用
   所以由 CI 在读 tag 时用 `.github/scripts/set-version.mjs` 统一写；脚本要求每个文件
   「恰好一处版本声明」，找不到或多处就失败（宁可红，也不要静默改错文件）。
 - **`tauri-action` 需要显式 `tauriScript: pnpm tauri`**，否则它按 npm 跑。
-- **`includeUpdaterJson` 默认是 `true`**（会往 Release 上传 `latest.json`）。本项目没有
-  updater 插件，要显式关掉，免得 Release 里多一个没人用的资源。
+- **`uploadUpdaterJson`（旧名 `includeUpdaterJson`）默认是 `true`**（会往 Release 上传
+  `latest.json`）。本项目没有 updater 插件，要显式关掉，免得 Release 里多一个没人用的资源。
+- **`includeUpdaterJson` 在 `tauri-action@v1` 里改名叫 `uploadUpdaterJson`**，默认值仍然是
+  `true`。这类改名最阴的地方是：**写旧名不会报错**，GitHub 只对「未知输入」发一条警告，
+  构建照跑，于是 Release 里悄悄多出 `latest.json`。升级 action 主版本后要对着
+  `action.yml` 的 `inputs:` 逐个核一遍参数名，别只信记忆。
+- **`tauri-action@v1` 的另一个破坏性变更**：`releaseDraft: true` 时，如果该 tag 对应的
+  Release 已经不是草稿（比如已经点过 Publish），action 会**直接失败**而不是把草稿状态改回去。
+  发版后重跑同一个 tag 的 workflow 会红，这是有意设计，不是构建出错。
+- **action 的运行时版本要跟着升**。首次配置时 `actions/checkout`、`actions/setup-node`、
+  `pnpm/action-setup` 钉的还是 `v4`，这版跑在 **node20** 上——而 node20 运行时已被 GitHub
+  弃用，CI 日志里会出现一条
+  「Node.js 20 is deprecated … but are being forced to run on Node.js 24」的警告，
+  GitHub 直接把它们改跑 node24。迁到 node24 的版本分别是：`checkout` / `setup-node` **v5+**、
+  `pnpm/action-setup` **v5+**、`actions/upload-artifact` **v5+**
+  （`Swatinem/rust-cache@v2` 与 `tauri-apps/tauri-action@v0` 当时已经是 node24，
+  `dtolnay/rust-toolchain` 是 composite，不涉及 node 运行时）。
+  注意 `upload-artifact@v4` 这条坑只有 `release.yml` 跑起来才会暴露——`ci.yml` 里没有它，
+  日常校验全是绿的也可能带着一个 node20 的 action。
+  `runtime/check-workflows.mjs` 里有一张「最低主版本」表，任何 action 低于它就判失败。
 - **`tagName` 留空 = 不创建 Release**，正好用来支持「手动触发只构建不发版」。
 - **未签名安装包**：下载时 SmartScreen 会提示「未知发布者」——这是没有代码签名证书的必然结果，
   不是构建出错。

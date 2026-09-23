@@ -5,6 +5,11 @@ name: Release
 # tagName 留空时 tauri-action 不会去碰 Releases。
 #
 # 未签名构建不需要任何密钥，GITHUB_TOKEN 是自动注入的。
+#
+# action 版本：checkout / setup-node 要 v5+、pnpm/action-setup 要 v5+、
+# upload-artifact 要 v5+ 才跑在 node24 上（v4 会触发
+# "Node.js 20 is deprecated" 警告）；tauri-action 从 v0 升到 v1，
+# 顺带把 includeUpdaterJson 改名成了 uploadUpdaterJson。
 on:
   push:
     tags: ["v*"]
@@ -25,15 +30,15 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 安装 pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10
 
       - name: 安装 Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -60,14 +65,16 @@ jobs:
 
       - name: 构建（tag 上同时生成草稿 Release）
         id: tauri
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           # pnpm 必须显式指定，否则 action 会去跑 npm/yarn
           tauriScript: pnpm tauri
           # 本项目没有 updater 插件，不要往 Release 里塞 latest.json
-          includeUpdaterJson: false
+          # （v1 起这个输入叫 uploadUpdaterJson，旧名 includeUpdaterJson 已移除，
+          #  默认值还是 true，所以必须显式关掉）
+          uploadUpdaterJson: false
           # 冷构建要下几百个 crate，网络抖动时自动重试
           retryAttempts: 2
           # 只有 tag 触发时才有 tagName；空值 = 不创建 Release
@@ -81,7 +88,7 @@ jobs:
           prerelease: false
 
       - name: 上传构建产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: shiji-setup
           path: src-tauri/target/release/bundle/nsis/*.exe

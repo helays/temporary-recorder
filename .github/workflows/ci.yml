@@ -16,6 +16,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# action 版本：checkout / setup-node 要 v5+、pnpm/action-setup 要 v5+ 才跑在 node24 上。
+# 停在 v4 会收到 "Node.js 20 is deprecated" 警告（并被强制改跑 node24），
+# 所以这里统一钉在已迁到 node24 的主版本，别往下退。
+#
 # 同一个分支连续推送时，取消还没跑完的旧任务
 concurrency:
   group: ci-${{ github.ref }}
@@ -28,15 +32,15 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 安装 pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10
 
       - name: 安装 Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm

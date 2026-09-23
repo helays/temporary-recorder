@@ -250,7 +250,9 @@ git push origin v0.1.0
 ```
 
 跑完之后：Releases 页面会出现一份 **草稿**，里面是 `闪记_0.1.0_x64-setup.exe`；
-点 Publish 才对外可见。同一个 tag 重跑会更新那份草稿，不会重复创建。
+点 Publish 才对外可见。草稿状态下重跑同一个 tag 会更新那份草稿，不会重复创建
+（但如果已经点过 Publish，`tauri-action@v1` 会因为「要求草稿而 Release 已发布」直接失败，
+这是它的刻意设计）。
 手动触发 `release.yml` 只会构建 + 上传工作流产物（`tagName` 为空时 tauri-action 不碰 Releases），
 可以拿来验证「CI 上能不能构建成功」而不发版。
 
@@ -259,7 +261,12 @@ git push origin v0.1.0
 - **版本号由 `.github/scripts/set-version.mjs` 统一写入** `package.json`、`src-tauri/tauri.conf.json`、
   `src-tauri/Cargo.toml`。产物名与 exe 的版本资源都取自它们，靠人记得手工改三处早晚不一致；
   脚本对每个文件要求「恰好一处版本声明」，找不到或多处都会直接失败。
-- **`includeUpdaterJson: false`**：本项目没有 updater 插件，不要往 Release 里塞 `latest.json`。
+- **`uploadUpdaterJson: false`**：本项目没有 updater 插件，不要往 Release 里塞 `latest.json`。
+  这个输入在 `tauri-action@v1` 之前叫 `includeUpdaterJson`，写旧名不会报错、只会被静默忽略。
+- **action 版本钉在已迁到 node24 的主版本上**：`checkout` / `setup-node` v7、
+  `pnpm/action-setup` v6、`upload-artifact` v7、`tauri-action` v1。
+  停在 `@v4` 会触发「Node.js 20 is deprecated」警告并被强制改跑 node24，
+  所以别往下退——`runtime/check-workflows.mjs` 会拦。
 - **`tauriScript: pnpm tauri`**：pnpm 必须显式指定，否则 action 会去跑 npm/yarn。
 - **不签名**：未签名构建不需要任何密钥（`GITHUB_TOKEN` 自动注入），代价是 SmartScreen 会提示
   「未知发布者」。
