@@ -20,6 +20,9 @@ interface StatusState {
   format: DocFormat;
   largeFile: boolean;
   message: StatusMessage | null;
+  /** 设置面板是否打开（纯 UI 状态） */
+  settingsOpen: boolean;
+  setSettingsOpen: (open: boolean) => void;
   setCursor: (
     line: number,
     column: number,
@@ -44,6 +47,8 @@ export const useStatusStore = create<StatusState>((set) => ({
   format: "text",
   largeFile: false,
   message: null,
+  settingsOpen: false,
+  setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
   setCursor: (cursorLine, cursorColumn, selectionLength, docLength) =>
     set({ cursorLine, cursorColumn, selectionLength, docLength }),
   setFormat: (format) => set({ format }),

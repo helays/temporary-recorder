@@ -18,6 +18,8 @@ export interface AppKeymapHandlers {
   save: () => void;
   /** 另存为（Ctrl+Shift+S） */
   saveAs: () => void;
+  /** 打开设置（Ctrl+,） */
+  openSettings: () => void;
 }
 
 /**
@@ -41,6 +43,7 @@ export function appKeymap(handlers: AppKeymapHandlers): Extension {
       { key: "Mod-s", run: run(handlers.save), preventDefault: true },
       { key: "Mod-o", run: run(handlers.openFile), preventDefault: true },
       { key: "Mod-Shift-s", run: run(handlers.saveAs), preventDefault: true },
+      { key: "Mod-,", run: run(handlers.openSettings), preventDefault: true },
       // Ctrl+H 打开替换：CodeMirror 的搜索面板本身包含替换输入框
       { key: "Mod-h", run: openSearchPanel, preventDefault: true },
       { key: "Mod-Tab", run: run(handlers.nextTab), preventDefault: true },

@@ -66,6 +66,7 @@ pub fn run() {
             commands::textfile::delete_file,
             commands::textfile::list_dir,
             commands::textfile::ensure_dir,
+            commands::textfile::reveal_path,
         ])
         .setup(|app| {
             #[cfg(windows)]

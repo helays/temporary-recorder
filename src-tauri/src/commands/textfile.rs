@@ -167,3 +167,22 @@ pub fn list_dir(path: String) -> Result<Vec<DirEntryInfo>, String> {
 pub fn ensure_dir(path: String) -> Result<(), String> {
     fs::create_dir_all(&path).map_err(|e| format!("创建目录失败：{e}"))
 }
+
+/// 在资源管理器中打开某个路径（「设置」里的「打开临时目录」用）。
+/// 只为这一个按钮引入 opener 插件不划算，直接用 explorer 打开。
+#[tauri::command]
+pub fn reveal_path(path: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("打开资源管理器失败：{e}"))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err("仅支持 Windows".to_string())
+    }
+}

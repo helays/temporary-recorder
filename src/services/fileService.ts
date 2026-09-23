@@ -52,6 +52,11 @@ export function ensureDir(path: string): Promise<void> {
   return invoke<void>("ensure_dir", { path });
 }
 
+/** 在资源管理器中打开该路径 */
+export function revealPath(path: string): Promise<void> {
+  return invoke<void>("reveal_path", { path });
+}
+
 /** 打开/另存为对话框的过滤器 */
 const TEXT_FILTERS = [
   { name: "JSON", extensions: ["json"] },

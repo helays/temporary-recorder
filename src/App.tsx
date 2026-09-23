@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Editor } from "./components/Editor";
+import { Settings } from "./components/Settings";
 import { StatusBar } from "./components/StatusBar";
 import { TabBar } from "./components/TabBar";
 import { editorManager } from "./extensions/editorManager";
@@ -88,6 +89,9 @@ editorManager.configure({
     saveAs: () => {
       void saveActiveTabAs();
     },
+    openSettings: () => {
+      useStatusStore.getState().setSettingsOpen(true);
+    },
   },
 });
 
@@ -129,6 +133,8 @@ function App() {
   const [ready, setReady] = useState(false);
   const themePref = useSettingsStore((state) => state.themePref);
   const systemTheme = useSettingsStore((state) => state.systemTheme);
+  const settingsOpen = useStatusStore((state) => state.settingsOpen);
+  const setSettingsOpen = useStatusStore((state) => state.setSettingsOpen);
 
   // 应用主题到文档与编辑器。窗口在启动完成前是隐藏的，所以这里不会闪。
   useEffect(() => {
@@ -226,6 +232,7 @@ function App() {
       <TabBar />
       <Editor />
       <StatusBar />
+      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }
