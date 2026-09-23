@@ -30,6 +30,9 @@ export function appKeymap(handlers: AppKeymapHandlers): Extension {
   return [
     keymap.of([
       { key: "Mod-t", run: run(handlers.newTab), preventDefault: true },
+      // Ctrl+N 与 Ctrl+T 都新建标签；Ctrl+N 不在 WebView2 的浏览器加速键列表里，
+      // 所以不会被 WebView2 抢走（Ctrl+F/Ctrl+P/Ctrl+R 才会，见 lib.rs 的处理）。
+      { key: "Mod-n", run: run(handlers.newTab), preventDefault: true },
       { key: "Mod-w", run: run(handlers.closeTab), preventDefault: true },
       { key: "Mod-s", run: run(handlers.flush), preventDefault: true },
       // Ctrl+H 打开替换：CodeMirror 的搜索面板本身包含替换输入框
