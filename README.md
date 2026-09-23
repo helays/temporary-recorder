@@ -167,6 +167,8 @@ PowerShell 读取无 BOM 的脚本文件时按系统代码页解码，UTF-8 中�
 | `check-window.ps1` | 枚举应用窗口，输出实际尺寸/位置/可见性 |
 | `close-app.ps1` | 向真实窗口发送 `WM_CLOSE`，走一遍正常退出流程 |
 | `seed-tabs.mjs` | 写入 3 个标签与指定窗口几何，用于测试会话恢复 |
+| `measure-release.ps1` | 量体积、冷启动到窗口可见的耗时、工作集内存 |
+| `measure-memory.ps1` | 空闲 30 秒后按 PID 量工作集与私有工作集 |
 
 示例：
 
@@ -175,6 +177,46 @@ node runtime/verify-db.mjs
 node runtime/check-utils.mjs
 node runtime/check-json-error.mjs
 ```
+
+## 性能实测
+
+在 release 构建（`pnpm tauri build`，LTO 开启）下实测，机器为 96 DPI：
+
+| 指标 | 目标 | 实测 | 结论 |
+|------|------|------|------|
+| 主程序体积 | < 15 MB | **6.13 MB** | ✅ |
+| MSI 安装包 | — | 3.14 MB | — |
+| NSIS 安装包 | — | 2.30 MB | — |
+| 冷启动到窗口可见 | < 1.5 s | **0.78 s** | ✅ |
+| 空闲内存（应用自身进程） | < 80 MB | **25.5 MB**（私有 3.9 MB） | ✅ |
+| 空闲内存（含 WebView2 辅助进程） | < 80 MB | **约 365 MB**（私有约 96 MB） | ❌ 超出 |
+
+**关于内存指标的说明（重要）：**
+
+Tauri 复用系统 WebView2，运行时除应用自身进程外还会拉起 6 个
+`msedgewebview2.exe` 辅助进程（浏览器、渲染、GPU、网络、崩溃上报等）。
+空闲 30 秒后实测：
+
+```
+temporary-recorder      25.5 MB 工作集   3.9 MB 私有
+6 x msedgewebview2     339.5 MB 工作集  92.0 MB 私有
+合计                   365.0 MB 工作集  95.9 MB 私有
+```
+
+也就是说：
+
+- 若「空闲内存」指**应用自身进程**，目标达成且余量很大（25.5 MB）。
+- 若指**含 WebView2 全部辅助进程的总和**，则约 96 MB（私有）/ 365 MB（工作集），
+  **超出 80 MB 的目标**。
+
+这部分开销来自 WebView2 运行时本身，不是本项目代码造成的：前端产物仅
+729 KB（gzip 233 KB），CodeMirror 与 React 都常驻内存但占比很小。
+在「Tauri v2 + 系统 WebView2」这一技术选型下（本项目技术栈已定，不得更改），
+把含 WebView2 辅助进程的总内存压到 80 MB 以下并不现实。
+选择 Tauri 而非 Electron 的收益主要体现在**体积**（6 MB vs 通常 80 MB+）上。
+
+> 说明：工作集（Working Set）会把各进程共享的 DLL 页面重复计入，因此
+> 「工作集求和」会明显高估；「私有工作集」是更公平的口径。上表两个口径都已列出。
 
 ## 测试现状
 
@@ -193,7 +235,7 @@ node runtime/check-json-error.mjs
 - 实际键盘输入后的 800ms 自动保存与光标/滚动恢复
 - 标签新建/关闭/重命名/拖拽排序的交互手感
 - 格式化与压缩按钮、`Ctrl+F` / `Ctrl+H` 搜索面板、`Alt+Click` 多光标
-- release 构建下的空闲内存与冷启动耗时
+- 输入延迟（< 16ms）的主观体感
 
 ## 本机专用配置
 
