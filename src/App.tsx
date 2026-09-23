@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { DropOverlay } from "./components/DropOverlay";
 import { Editor } from "./components/Editor";
 import { Settings } from "./components/Settings";
 import { StatusBar } from "./components/StatusBar";
@@ -14,6 +15,7 @@ import {
   saveActiveTab,
   saveActiveTabAs,
 } from "./services/fileActions";
+import { installAppMenu } from "./services/menu";
 import {
   captureWindowGeometry,
   loadTabForEditor,
@@ -165,6 +167,9 @@ function App() {
         ),
       );
 
+      // 顶部原生菜单栏。失败只落到状态栏，不影响后面的启动流程。
+      await installAppMenu();
+
       // v1 的内容还在数据库里，先落到临时目录（失败的行保持原样，不丢数据）
       const migrated = await materializeLegacyContent();
       if (migrated > 0) console.info(`[db] 已把 ${migrated} 个标签的内容迁移到文件`);
@@ -237,6 +242,7 @@ function App() {
       <TabBar />
       <Editor />
       <StatusBar />
+      <DropOverlay />
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
     </div>
   );

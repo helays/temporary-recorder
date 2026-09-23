@@ -1,12 +1,10 @@
-import { confirm } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useState } from "react";
+import { pickDirectory, revealPath, type DirEntryInfo } from "../../services/fileService";
 import {
-  deleteFile,
-  listDir,
-  pickDirectory,
-  revealPath,
-  type DirEntryInfo,
-} from "../../services/fileService";
+  cleanOrphanTempFiles,
+  describeCleanup,
+  scanTempDir,
+} from "../../services/tempCleanup";
 import { defaultTempDir, effectiveTempDir } from "../../services/tempFiles";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useTabsStore } from "../../stores/tabsStore";
@@ -44,18 +42,9 @@ export function Settings({ onClose }: SettingsProps) {
       setEffectiveDir(dir);
       setDefaultDir(await defaultTempDir());
 
-      const entries = await listDir(dir);
-      const onlyFiles = entries.filter((entry) => entry.is_file);
-      // 孤儿 = 临时目录里没有任何标签引用的文件。
-      // 关闭临时标签时我们刻意保留文件，所以这些通常就是「已关闭标签的草稿」，仍可找回。
-      const referenced = new Set(
-        tabs
-          .map((tab) => tab.file_path)
-          .filter((path): path is string => path !== null)
-          .map((path) => path.toLowerCase()),
-      );
-      setFiles(onlyFiles);
-      setOrphans(onlyFiles.filter((entry) => !referenced.has(entry.path.toLowerCase())));
+      const entries = await scanTempDir();
+      setFiles(entries.files);
+      setOrphans(entries.orphans);
     } catch (err) {
       setNotice(`读取临时目录失败：${err instanceof Error ? err.message : String(err)}`);
     }
@@ -81,29 +70,16 @@ export function Settings({ onClose }: SettingsProps) {
   };
 
   const handleCleanOrphans = async (): Promise<void> => {
-    if (orphans.length === 0) {
-      setNotice("没有需要清理的孤儿文件");
-      return;
-    }
-    const yes = await confirm(
-      `将删除 ${orphans.length} 个没有被任何标签引用的临时文件。\n` +
-        `这些多半是已关闭标签留下的草稿，删除后无法找回。确定继续吗？`,
-      { title: "清理临时文件", kind: "warning" },
-    );
-    if (!yes) return;
-
     setBusy(true);
-    let removed = 0;
-    for (const entry of orphans) {
-      try {
-        if (await deleteFile(entry.path)) removed += 1;
-      } catch (err) {
-        console.error("[settings] 删除临时文件失败:", entry.path, err);
-      }
+    try {
+      const result = await cleanOrphanTempFiles();
+      setNotice(describeCleanup(result));
+    } catch (err) {
+      setNotice(`清理失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+      await refresh();
     }
-    setBusy(false);
-    await refresh();
-    setNotice(`已清理 ${removed} 个临时文件`);
   };
 
   return (

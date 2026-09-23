@@ -14,12 +14,19 @@ import {
   highlightSpecialChars,
   keymap,
   lineNumbers,
+  placeholder,
   rectangularSelection,
+  type Command,
 } from "@codemirror/view";
 import { bracketMatching, indentOnInput, indentUnit } from "@codemirror/language";
 import { closeBrackets } from "@codemirror/autocomplete";
-import { history } from "@codemirror/commands";
-import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
+import { history, redo, selectAll, undo } from "@codemirror/commands";
+import {
+  highlightSelectionMatches,
+  openSearchPanel,
+  search,
+  searchKeymap,
+} from "@codemirror/search";
 import { json } from "@codemirror/lang-json";
 import { yaml } from "@codemirror/lang-yaml";
 import { detectFormat } from "../services/format";
@@ -41,6 +48,12 @@ export const CARET_SAVE_DELAY = 1000;
 export const FORMAT_DETECT_DELAY = 250;
 /** 内容不超过此长度且以 { 或 [ 开头时立刻按 JSON 处理（覆盖「敲 { 后马上回车」） */
 const IMMEDIATE_DETECT_MAX = 4096;
+
+/**
+ * 空标签时显示在编辑器里的灰色提示。
+ * 「怎么打开文件」此前只能靠记快捷键，这条提示让入口在界面上可见。
+ */
+export const EMPTY_PLACEHOLDER = "输入内容，或把文件拖进窗口打开（Ctrl+O）";
 
 /** 从数据库载入某标签所需的初始状态 */
 export interface TabContent {
@@ -197,6 +210,7 @@ class EditorManager {
       highlightSelectionMatches(),
       search({ top: true }),
       EditorView.lineWrapping,
+      placeholder(EMPTY_PLACEHOLDER),
       // 语言扩展通过 Compartment 装载，便于大文件时热插拔
       this.languageCompartment.of(language),
       this.themeCompartment.of(editorThemeExtension(this.theme)),
@@ -489,6 +503,38 @@ class EditorManager {
       changes: { from: 0, to: view.state.doc.length, insert: content },
     });
     view.focus();
+  }
+
+  /**
+   * 执行一条 CodeMirror 命令。
+   * 供原生菜单调用：菜单项点击时焦点已经从编辑器移开，所以执行后要抢回焦点。
+   */
+  private runCommand(command: Command): boolean {
+    const view = this.view;
+    if (view === null) return false;
+    const handled = command(view);
+    view.focus();
+    return handled;
+  }
+
+  /** 撤销。走 CodeMirror 自己的历史栈，而不是原生 Undo —— 原生撤销不认它的历史 */
+  undo(): boolean {
+    return this.runCommand(undo);
+  }
+
+  /** 重做 */
+  redo(): boolean {
+    return this.runCommand(redo);
+  }
+
+  /** 全选 */
+  selectAll(): boolean {
+    return this.runCommand(selectAll);
+  }
+
+  /** 打开搜索/替换面板 */
+  openSearch(): boolean {
+    return this.runCommand(openSearchPanel);
   }
 
   focus(): void {
