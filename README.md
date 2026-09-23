@@ -68,6 +68,39 @@ C:\Users\helei\AppData\Roaming\com.temporary.recorder\recorder.db
 读取时用普通 SQLite 客户端即可，会自动合并 WAL。
 `.gitignore` 已包含 `*.db-wal` / `*.db-shm`。
 
+## 安装与卸载
+
+当前配置为**全机器安装**（`bundle.windows.nsis.installMode: "perMachine"`）：
+
+- 安装到 `C:\Program Files\Temporary Recorder`
+- 开始菜单快捷方式建在 **All Users**
+- 注册表登记在 **HKLM**（`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Temporary Recorder`）
+- 安装与卸载都**需要管理员权限**，会弹 UAC
+
+静默安装 / 卸载（不带向导页，推荐用这个方式避免误改安装路径）：
+
+```powershell
+# 安装（会弹 UAC）
+& "src-tauri\target\release\bundle\nsis\Temporary Recorder_0.1.0_x64-setup.exe" /S
+
+# 卸载（会弹 UAC）
+& "C:\Program Files\Temporary Recorder\uninstall.exe" /S
+```
+
+`bundle.targets` 设为 `["nsis"]` 而非 `"all"`：**MSI 与 NSIS 共用同一个状态键**
+`…\Software\temporary\Temporary Recorder`，但两者默认安装位置不同
+（MSI 默认 Program Files，NSIS 默认 `%LOCALAPPDATA%`）。同时产出两种安装包时，
+先跑 MSI 会把路径记进该键，再跑 NSIS 就会继承 Program Files 却以普通用户权限写入而失败。
+只出 NSIS 可以从根上避免这个不一致。
+
+**卸载默认不会删除你的记录。** 卸载向导上的「Delete app data」勾选框默认**不勾**，
+只有显式勾选才会删除 `%APPDATA%\com.temporary.recorder`（也就是 `recorder.db`）；
+静默卸载 `/S` 不会勾选，因此数据一律保留。
+
+已知的小残留：不勾选「Delete app data」时，`HKLM\Software\temporary` 这个键会留下。
+它只记录安装位置与语言，不影响使用，重装时会被复用。
+（它同时也是安装程序"记住上次装在哪"的机制 —— 见下方踩坑记录。）
+
 ## 快捷键
 
 | 快捷键 | 功能 |
@@ -154,6 +187,26 @@ A 的待保存内容会被 B 的内容覆盖。
 PowerShell 读取无 BOM 的脚本文件时按系统代码页解码，UTF-8 中文会变乱码，
 且可能产生破坏字符串结束符的字节（本项目实际踩到过）。
 因此 `runtime/*.ps1` 刻意只写英文；`.mjs` 由 Node 按 UTF-8 读取，可正常使用中文。
+
+### 8. 安装程序会把上次的安装路径「钉住」
+
+NSIS 模板里的 `RestorePreviousInstallLocation`（生成的 `installer.nsi`）会读取
+`…\Software\temporary\Temporary Recorder` 的默认值，**直接覆盖 `$INSTDIR`**，
+其优先级高于安装模式本身的默认位置。
+
+后果：只要该键里存的是 `C:\Program Files\Temporary Recorder`，
+那么即使安装包是 `currentUser` 模式（`RequestExecutionLevel user`，不提权），
+安装也会被重定向到 Program Files，进而因无写权限报
+`Error opening file for writing`。
+
+更麻烦的是这个错误对话框有 Abort / Retry / **Ignore** 三个选项：
+点 Ignore 会跳过文件复制、**继续跑完剩余步骤**，于是写入了卸载注册表键与开始菜单快捷方式，
+但程序文件一个都没落盘。结果就是「应用和功能」里能看到它，却打不开、也卸载不掉
+——因为 `UninstallString` 指向的 `uninstall.exe` 从未被写入。
+
+修复方式：删掉那个残留键值（否则每次安装都会被重新钉住），并把 `installMode`
+显式设为 `perMachine`，让安装路径与权限要求一致。
+排查这类问题时，要点是分清「注册表里声称装了什么」与「磁盘上实际有什么」。
 
 ## 验收辅助脚本（`runtime/`，不提交）
 
