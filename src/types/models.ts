@@ -8,9 +8,15 @@ export interface TabMeta {
   scroll_top: number;
   created_at: number;
   updated_at: number;
+  /** 内容所在的文件；null 表示仍以 tabs.content 为准（迁移未完成的兜底） */
+  file_path: string | null;
+  /** 1 = 文件还在临时目录里（尚未另存为） */
+  is_temp: number;
+  /** 上次读写该文件时记录的修改时间，用于检测外部改动 */
+  disk_mtime: number | null;
 }
 
-/** 完整标签记录：含内容 */
+/** 完整标签记录：含内容（content 仅作 v1 迁移与异常兜底，正常不再写入） */
 export interface TabRecord extends TabMeta {
   content: string;
 }

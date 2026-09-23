@@ -6,6 +6,8 @@ import { TabBar } from "./components/TabBar";
 import { editorManager } from "./extensions/editorManager";
 import { getDbPath, initDb, setDbErrorHandler } from "./services/db";
 import { formatActiveTab, minifyActiveTab } from "./services/formatActions";
+import { materializeLegacyContent } from "./services/legacyMigration";
+import { saveTabContent } from "./services/contentStore";
 import {
   captureWindowGeometry,
   loadTabForEditor,
@@ -15,7 +17,7 @@ import {
 } from "./services/session";
 import { writeActiveTab, writeWindowGeometry } from "./services/sessionRepo";
 import { getAllSettings } from "./services/settingsRepo";
-import { updateTabCaret, updateTabContent } from "./services/tabsRepo";
+import { updateTabCaret } from "./services/tabsRepo";
 import { applyThemeToDocument, watchSystemTheme } from "./services/theme";
 import { resolveTheme, useSettingsStore } from "./stores/settingsStore";
 import { useStatusStore } from "./stores/statusStore";
@@ -28,8 +30,9 @@ import { useTabsStore } from "./stores/tabsStore";
  */
 editorManager.configure({
   loadTab: (tabId) => loadTabForEditor(tabId, useTabsStore.getState().tabs),
+  // v2 起内容不再写数据库，而是写到标签背后的文件
   saveContent: (tabId, content) => {
-    void updateTabContent(tabId, content, Date.now());
+    void saveTabContent(tabId, content);
   },
   saveCaret: (tabId, cursorLine, cursorCh, scrollTop) => {
     void updateTabCaret(tabId, cursorLine, cursorCh, scrollTop);
@@ -135,7 +138,7 @@ function App() {
       const dbPath = await getDbPath();
       if (dbPath !== null) console.info(`[db] 数据库位置：${dbPath}`);
 
-      // 先读设置：主题要在渲染前就位
+      // 先读设置：主题与临时目录都要在后续步骤之前就位
       const settings = await getAllSettings();
       useSettingsStore.getState().hydrate(settings);
 
@@ -144,6 +147,10 @@ function App() {
           useSettingsStore.getState().setSystemTheme(theme),
         ),
       );
+
+      // v1 的内容还在数据库里，先落到临时目录（失败的行保持原样，不丢数据）
+      const migrated = await materializeLegacyContent();
+      if (migrated > 0) console.info(`[db] 已把 ${migrated} 个标签的内容迁移到文件`);
 
       const { tabs, activeTabId, session } = await restoreSession();
 

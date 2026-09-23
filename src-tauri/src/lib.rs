@@ -1,3 +1,5 @@
+mod commands;
+
 /// 关闭 WebView2 的「浏览器加速键」。
 ///
 /// wry 默认把这个开关保持为 WebView2 的默认值 true，于是 Ctrl+F / Ctrl+P /
@@ -56,6 +58,15 @@ fn disable_browser_accelerator_keys(window: &tauri::WebviewWindow) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            commands::textfile::read_text_file,
+            commands::textfile::write_text_file,
+            commands::textfile::path_status,
+            commands::textfile::delete_file,
+            commands::textfile::list_dir,
+            commands::textfile::ensure_dir,
+        ])
         .setup(|app| {
             #[cfg(windows)]
             {

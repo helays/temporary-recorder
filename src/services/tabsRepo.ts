@@ -3,10 +3,10 @@ import type { TabMeta, TabRecord } from "../types/models";
 
 /**
  * 列表查询只取元数据字段，绝不 SELECT *。
- * content 可能很大，把全部内容读进内存会拖垮启动与内存指标。
+ * content 可能很大（v1 遗留数据），把全部内容读进内存会拖垮启动与内存指标。
  */
 const META_COLUMNS =
-  "id, title, sort_order, cursor_line, cursor_ch, scroll_top, created_at, updated_at";
+  "id, title, sort_order, cursor_line, cursor_ch, scroll_top, created_at, updated_at, file_path, is_temp, disk_mtime";
 
 export function listTabMeta(): Promise<TabMeta[]> {
   return read<TabMeta>(
@@ -15,6 +15,17 @@ export function listTabMeta(): Promise<TabMeta[]> {
   );
 }
 
+/** v1 遗留内容：还没有对应文件的行（迁移用） */
+export function listLegacyContent(): Promise<
+  Array<{ id: string; title: string; content: string }>
+> {
+  return read<{ id: string; title: string; content: string }>(
+    "列出待迁移内容",
+    `SELECT id, title, content FROM tabs WHERE file_path IS NULL AND content <> ''`,
+  );
+}
+
+/** 兜底读取：仅用于 file_path 为空的行 */
 export async function getTabContent(id: string): Promise<string | null> {
   const rows = await read<{ content: string }>(
     "读取标签内容",
@@ -38,8 +49,9 @@ export function insertTab(tab: TabRecord): Promise<boolean> {
   return write(
     "新建标签",
     `INSERT INTO tabs
-       (id, title, content, sort_order, cursor_line, cursor_ch, scroll_top, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+       (id, title, content, sort_order, cursor_line, cursor_ch, scroll_top,
+        created_at, updated_at, file_path, is_temp, disk_mtime)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
     [
       tab.id,
       tab.title,
@@ -50,19 +62,10 @@ export function insertTab(tab: TabRecord): Promise<boolean> {
       tab.scroll_top,
       tab.created_at,
       tab.updated_at,
+      tab.file_path,
+      tab.is_temp,
+      tab.disk_mtime,
     ],
-  );
-}
-
-export function updateTabContent(
-  id: string,
-  content: string,
-  updatedAt: number,
-): Promise<boolean> {
-  return write(
-    "保存标签内容",
-    `UPDATE tabs SET content = $1, updated_at = $2 WHERE id = $3`,
-    [content, updatedAt, id],
   );
 }
 
@@ -76,6 +79,33 @@ export function updateTabTitle(
     updatedAt,
     id,
   ]);
+}
+
+/** 绑定内容文件（新建标签、另存为、v1 迁移都走这里） */
+export function updateTabFile(
+  id: string,
+  filePath: string | null,
+  isTemp: number,
+  diskMtime: number | null,
+): Promise<boolean> {
+  return write(
+    "保存标签文件位置",
+    `UPDATE tabs SET file_path = $1, is_temp = $2, disk_mtime = $3, updated_at = $4 WHERE id = $5`,
+    [filePath, isTemp, diskMtime, Date.now(), id],
+  );
+}
+
+/** 只更新 mtime（每次自动写文件后调用） */
+export function updateTabDiskMtime(id: string, diskMtime: number): Promise<boolean> {
+  return write("更新文件时间戳", `UPDATE tabs SET disk_mtime = $1 WHERE id = $2`, [
+    diskMtime,
+    id,
+  ]);
+}
+
+/** 迁移完成后清掉库里的内容，回收空间 */
+export function clearTabContent(id: string): Promise<boolean> {
+  return write("清理已迁移内容", `UPDATE tabs SET content = '' WHERE id = $1`, [id]);
 }
 
 /** 光标与滚动位置（1 秒防抖写入） */

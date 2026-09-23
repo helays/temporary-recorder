@@ -4,10 +4,13 @@ import {
   LogicalPosition,
   LogicalSize,
 } from "@tauri-apps/api/window";
-import { getTabContent, listTabMeta } from "./tabsRepo";
+import { getTabContent, listTabMeta, updateTabDiskMtime } from "./tabsRepo";
 import { readSession, writeWindowGeometry } from "./sessionRepo";
+import { readTextFile } from "./fileService";
 import { normalizeNewlines } from "../utils/text";
 import { debounce } from "../utils/debounce";
+import { useStatusStore } from "../stores/statusStore";
+import { useTabsStore } from "../stores/tabsStore";
 import type { SessionRow, TabMeta, WindowGeometry } from "../types/models";
 import type { TabContent } from "../extensions/editorManager";
 
@@ -41,20 +44,44 @@ export async function restoreSession(): Promise<RestoreResult> {
 
 /**
  * 为编辑器载入某标签的初始状态。
- * 库中内容统一按 LF 载入（历史数据若含 CRLF 在此归一）。
+ *
+ * v2 起内容以文件为准；只有 file_path 为空的行（迁移未完成 / 临时目录不可用）
+ * 才退回读数据库内容。文件读不到时也走这条兜底，并在状态栏说明。
  */
 export async function loadTabForEditor(
   tabId: string,
   tabs: TabMeta[],
 ): Promise<TabContent | null> {
-  const content = await getTabContent(tabId);
-  if (content === null) return null;
   const meta = tabs.find((tab) => tab.id === tabId);
+  if (meta === undefined) return null;
+
+  let content: string | null = null;
+
+  if (meta.file_path !== null) {
+    try {
+      const payload = await readTextFile(meta.file_path);
+      content = payload.content;
+      // 记下基线 mtime，自动保存时用它检测外部改动
+      useTabsStore.getState().setDiskMtime(tabId, payload.mtime_ms);
+      void updateTabDiskMtime(tabId, payload.mtime_ms);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error("[session] 读取标签文件失败，退回数据库内容:", meta.file_path, err);
+      useStatusStore.getState().setMessage({
+        kind: "error",
+        text: `打开文件失败（${meta.file_path}）：${detail}`,
+      });
+      content = await getTabContent(tabId);
+    }
+  } else {
+    content = await getTabContent(tabId);
+  }
+
   return {
-    content: normalizeNewlines(content),
-    cursorLine: meta?.cursor_line ?? 0,
-    cursorCh: meta?.cursor_ch ?? 0,
-    scrollTop: meta?.scroll_top ?? 0,
+    content: normalizeNewlines(content ?? ""),
+    cursorLine: meta.cursor_line,
+    cursorCh: meta.cursor_ch,
+    scrollTop: meta.scroll_top,
   };
 }
 
