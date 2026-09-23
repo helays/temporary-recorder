@@ -3,7 +3,10 @@
 轻量级 Windows 桌面应用，用于临时记录、编辑、格式化文本内容。
 定位是「快速打开、随手记录、随时关闭」——不是 IDE，也不是笔记软件。
 
-多标签、自动保存、重启后完整恢复上次的标签与窗口状态；内置 JSON / YAML 格式化。
+多标签、自动保存、重启后完整恢复上次的标签与窗口状态；内置 JSON / YAML 格式化；
+可以直接打开真实的 `.json` / `.yaml` / `.txt` 文件就地编辑，也可以纯随手记——
+新建标签会立刻在临时目录里落一个文件，随时能「另存为」到正式位置。
+主题跟随系统（也可手动指定浅色 / 深色）。
 
 ## 技术栈
 
@@ -59,14 +62,44 @@ pnpm tauri build      # 打包 release 安装包
 C:\Users\helei\AppData\Roaming\com.temporary.recorder\recorder.db
 ```
 
-三张表：`tabs`（标签元数据 + 内容）、`session`（单行，激活标签与窗口几何）、
-`settings`（键值对）。schema 版本记录在 `PRAGMA user_version = 1`。
+三张表：`tabs`（标签元数据，含内容所在的文件路径）、`session`（单行，激活标签与窗口几何）、
+`settings`（键值对）。schema 版本记录在 `PRAGMA user_version = 2`。
 
 **关于 WAL：** `tauri-plugin-sql` 底层的 sqlx 默认开启 WAL 日志模式，
 因此目录下会同时出现 `recorder.db-wal` 与 `recorder.db-shm`。
 这是插件的默认行为（并非本项目显式启用），WAL 对写入可靠性与性能都更有利；
 读取时用普通 SQLite 客户端即可，会自动合并 WAL。
 `.gitignore` 已包含 `*.db-wal` / `*.db-shm`。
+
+## 内容、文件与临时目录
+
+**内容以文件为准，数据库只存元数据。** 每个标签都绑定一个文件（`tabs.file_path`）：
+
+| 标签来源 | 内容落在哪 | `is_temp` |
+|---|---|---|
+| 新建标签（`Ctrl+N` / `Ctrl+T`） | 临时目录，文件名形如 `未命名 1-3f9a2c8e.txt` | 1 |
+| 打开的文件（`Ctrl+O`） | 原文件本身 | 0 |
+| 另存为（`Ctrl+Shift+S`） | 用户选定的新路径，并**删除原来的临时文件** | 0 |
+
+- **临时目录**默认是 `%LOCALAPPDATA%\com.temporary.recorder\temp`，
+  刻意不用系统 `%TEMP%`——那里会被系统清理工具清掉，草稿就没了。
+  可在「设置」里改（改动只影响之后新建的标签，已有标签保持原文件）。
+- **关闭临时标签时不会删除它的文件**（这是刻意的：关掉之后内容仍能在临时目录里找回）。
+  因此「设置」里提供手动清理，且**只清理没有被任何标签引用的文件**。
+- **自动保存**：停止输入约 0.8 秒后写回该标签的文件。
+  临时文件总是写；真实文件受「设置 → 打开的文件自动保存」开关约束，
+  并且写之前会比对 mtime——若文件已被别的程序改过，就**不覆盖**，改为在状态栏提示，
+  此时 `Ctrl+S` 可以强制覆盖。只在真正发生编辑时才触发，单纯打开不会改动文件。
+- **换行与编码**：一律写成 **UTF-8 无 BOM + LF**。读入时会去掉 BOM 并把 CRLF/CR 归一为 LF，
+  因此用本应用保存过的 CRLF 文件会被转成 LF。非 UTF-8（如 GBK）文件会明确报错，不会产生乱码。
+- **写入是原子的**：先写同目录临时文件再改名覆盖，写到一半失败不会把原文件截断。
+
+## 设置（`Ctrl+,` 或状态栏「设置」）
+
+- **主题**：跟随系统 / 浅色 / 深色
+- **临时目录**：查看当前生效目录、选择新目录、恢复默认、在资源管理器中打开
+- **打开的文件自动保存**：开关
+- **临时文件**：显示总数与未被引用的数量，手动清理（删除前二次确认）
 
 ## 安装与卸载
 
@@ -105,7 +138,11 @@ C:\Users\helei\AppData\Roaming\com.temporary.recorder\recorder.db
 
 | 快捷键 | 功能 |
 |--------|------|
-| `Ctrl+T` | 新建标签 |
+| `Ctrl+N` / `Ctrl+T` | 新建标签（在临时目录建文件） |
+| `Ctrl+O` | 打开文件（已在某标签打开则直接切过去） |
+| `Ctrl+S` | 保存（临时标签会转为「另存为」；真实文件强制写盘） |
+| `Ctrl+Shift+S` | 另存为 |
+| `Ctrl+,` | 设置 |
 | `Ctrl+W` | 关闭当前标签 |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | 下一个 / 上一个标签 |
 | `Ctrl+PageDown` / `Ctrl+PageUp` | 同上（备用，部分环境会拦截 Ctrl+Tab） |
@@ -114,23 +151,22 @@ C:\Users\helei\AppData\Roaming\com.temporary.recorder\recorder.db
 | `Ctrl+H` | 替换（与搜索同一个面板，面板本身带替换输入框） |
 | `Shift+Alt+F` | 格式化（按内容自动识别 JSON / YAML） |
 | `Shift+Alt+M` | 压缩（仅 JSON） |
-| `Ctrl+S` | 立即落库（把待写入的内容强制写盘） |
 | `Ctrl+D` | 选下一个相同词（CodeMirror 默认行为） |
 | `Alt+Click` | 多光标（CodeMirror 默认行为） |
 
-标签重命名：双击标签名。
+标签重命名：双击标签名（只改标签显示名，不改文件名）。
 
 ## 目录结构
 
 ```
 src/
-├── components/          # TabBar / Editor / StatusBar
+├── components/          # TabBar / Editor / StatusBar / Settings
 ├── stores/              # Zustand：标签元数据、激活标签、设置、状态栏
-├── services/            # 数据库封装、格式化、会话恢复、窗口几何
-├── extensions/          # CodeMirror 集成（editorManager、主题、快捷键、语言）
+├── services/            # 数据库、文件 I/O、格式化、会话恢复、窗口几何
+├── extensions/          # CodeMirror 集成（editorManager、主题、快捷键、语言、YAML 缩进）
 ├── utils/               # 纯函数（防抖、换行归一、JSON 错误定位、id）
 └── types/               # TypeScript 类型
-src-tauri/               # Tauri 外壳（Rust 侧仅注册插件，无业务逻辑）
+src-tauri/               # Tauri 外壳（Rust 侧仅插件注册 + 纯 I/O 桥接命令）
 runtime/                 # 临时文件与验收脚本，禁止提交
 ```
 
@@ -208,18 +244,71 @@ NSIS 模板里的 `RestorePreviousInstallLocation`（生成的 `installer.nsi`�
 显式设为 `perMachine`，让安装路径与权限要求一致。
 排查这类问题时，要点是分清「注册表里声称装了什么」与「磁盘上实际有什么」。
 
+### 9. WebView2 会抢走 Ctrl+F（此前一直是失效的）
+
+wry 默认把 WebView2 的 `AreBrowserAcceleratorKeysEnabled` 保持为默认值 `true`，
+于是 **Ctrl+F / F3 打开的是 WebView2 自带的「页内查找」**，CodeMirror 的搜索面板根本打不开
+——自带查找条没有正则 / 大小写 / 全词，也没有替换。
+（`Ctrl+N`、`Ctrl+H` 不在被抢的列表里；`Ctrl+P` / `Ctrl+R` / `F12` / 缩放同样会被抢。）
+
+Tauri 的配置项里没有这个开关，只能取底层 COM 接口自行设置：
+
+```rust
+// src-tauri/src/lib.rs —— 在 setup 里对主窗口调用
+window.with_webview(|webview| unsafe {
+    let settings = webview.controller().CoreWebView2()?.Settings()?;
+    settings.cast::<ICoreWebView2Settings3>()?
+        .SetAreBrowserAcceleratorKeysEnabled(false)?;
+})?;
+```
+
+注意 `webview2-com` / `windows-core` 的版本必须与 Tauri 依赖树内一致，
+否则 `ICoreWebView2*` 类型对不上。因此 `tauri` 固定在次版本 `2.11`——
+官方文档也提示 webview2-com 会随 tauri 的次版本变化。
+
+### 10. `lang-yaml` 的缩进在「从零写 YAML」时不生效
+
+JSON 的换行缩进语言包已经提供；YAML 则只在块结构**已经成形**时才给得出缩进。
+实测（`runtime/explore-yaml-indent.mjs`）：
+
+```
+"key:"                  → 0        回车后是 "key:\n" → null（新行顶格）
+"key: value"            → 0        正确，兄弟级
+"outer:\n  inner:\n"    → 2        其实应该是 4（inner 的子级）
+```
+
+所以补了 `extensions/yamlIndent.ts`：上一行以 `:` 结尾时多缩进一级。
+
+**关键细节**：兜底服务在「不表态」时必须返回 `undefined`，不能返回 `null`——
+`getIndentation` 的判断是 `result !== undefined` 才继续问下一个服务，
+返回 `null` 会被当成「有意见」而直接返回，把语言自己本来正确的规则一起挡掉。
+`runtime/check-indent.mjs` 里有专门守这条的回归用例。
+
+### 11. React StrictMode 会把启动流程跑两遍
+
+开发模式下 `useEffect` 执行两次。启动流程里凡是不幂等的副作用都要留意。
+本例对产品代码是安全的（内容迁移与建文件都幂等，带副作用的监听器都在 `cancelled`
+检查之后才注册），但如果把一次性自检脚本写成固定文件名，两遍并发就会互相删掉
+对方刚写的文件，从而报出**看起来像产品缺陷、实则是脚手架问题**的假故障。
+排查这类「现象自相矛盾」的问题，最快的办法是在 Rust 侧加一行日志，
+确认到底哪条分支真的执行了（本次就是靠它定位的）。
+
 ## 验收辅助脚本（`runtime/`，不提交）
 
 | 脚本 | 作用 |
 |------|------|
-| `verify-db.mjs` | 检查表结构、`user_version`、标签顺序、内容无 CR、窗口几何 |
-| `check-json-error.mjs` | JSON 错误定位与 V8 报错交叉验证 |
+| `verify-db.mjs` | 表结构、`user_version`、标签顺序、v2 文件落盘、无 CR/BOM、临时目录与孤儿 |
+| `check-indent.mjs` | JSON / YAML 换行缩进断言（含「不干扰语言自身规则」的回归用例） |
+| `explore-yaml-indent.mjs` | 打印 YAML 在各种上下文下的真实缩进值（定位缺口用） |
 | `check-utils.mjs` | 防抖语义（含按标签隔离）、换行归一、大文件阈值、UUID |
+| `check-json-error.mjs` | JSON 错误定位与 V8 报错交叉验证 |
 | `check-libs.mjs` | js-yaml v5 的 `loadAll` / `dump` 行为核对 |
 | `check-perms.mjs` | 列出 `core:window:default` 实际授予的权限 |
 | `check-window.ps1` | 枚举应用窗口，输出实际尺寸/位置/可见性 |
 | `close-app.ps1` | 向真实窗口发送 `WM_CLOSE`，走一遍正常退出流程 |
 | `seed-tabs.mjs` | 写入 3 个标签与指定窗口几何，用于测试会话恢复 |
+| `snapshot-tabs.mjs` | 导出 tabs 内容快照，用于迁移前后逐字节比对 |
+| `read-setting.mjs` | 读取（或 `--delete` 删除）settings 表里的某一项 |
 | `measure-release.ps1` | 量体积、冷启动到窗口可见的耗时、工作集内存 |
 | `measure-memory.ps1` | 空闲 30 秒后按 PID 量工作集与私有工作集 |
 
@@ -237,12 +326,11 @@ node runtime/check-json-error.mjs
 
 | 指标 | 目标 | 实测 | 结论 |
 |------|------|------|------|
-| 主程序体积 | < 15 MB | **6.13 MB** | ✅ |
-| MSI 安装包 | — | 3.14 MB | — |
-| NSIS 安装包 | — | 2.30 MB | — |
-| 冷启动到窗口可见 | < 1.5 s | **0.78 s** | ✅ |
-| 空闲内存（应用自身进程） | < 80 MB | **25.5 MB**（私有 3.9 MB） | ✅ |
-| 空闲内存（含 WebView2 辅助进程） | < 80 MB | **约 365 MB**（私有约 96 MB） | ❌ 超出 |
+| 主程序体积 | < 15 MB | **6.36 MB** | ✅ |
+| NSIS 安装包 | — | 2.37 MB | — |
+| 冷启动到窗口可见 | < 1.5 s | **0.60 s** | ✅ |
+| 空闲内存（应用自身进程） | < 80 MB | **25.6 MB**（私有 3.9 MB） | ✅ |
+| 空闲内存（含 WebView2 辅助进程） | < 80 MB | **约 370 MB**（私有约 100 MB） | ❌ 超出 |
 
 **关于内存指标的说明（重要）：**
 
@@ -251,19 +339,19 @@ Tauri 复用系统 WebView2，运行时除应用自身进程外还会拉起 6 �
 空闲 30 秒后实测：
 
 ```
-temporary-recorder      25.5 MB 工作集   3.9 MB 私有
-6 x msedgewebview2     339.5 MB 工作集  92.0 MB 私有
-合计                   365.0 MB 工作集  95.9 MB 私有
+temporary-recorder      25.6 MB 工作集   3.9 MB 私有
+6 x msedgewebview2     344.0 MB 工作集  96.1 MB 私有
+合计                   369.6 MB 工作集 100.0 MB 私有
 ```
 
 也就是说：
 
-- 若「空闲内存」指**应用自身进程**，目标达成且余量很大（25.5 MB）。
-- 若指**含 WebView2 全部辅助进程的总和**，则约 96 MB（私有）/ 365 MB（工作集），
+- 若「空闲内存」指**应用自身进程**，目标达成且余量很大（25.6 MB）。
+- 若指**含 WebView2 全部辅助进程的总和**，则约 100 MB（私有）/ 370 MB（工作集），
   **超出 80 MB 的目标**。
 
 这部分开销来自 WebView2 运行时本身，不是本项目代码造成的：前端产物仅
-729 KB（gzip 233 KB），CodeMirror 与 React 都常驻内存但占比很小。
+749 KB（gzip 239 KB），CodeMirror 与 React 都常驻内存但占比很小。
 在「Tauri v2 + 系统 WebView2」这一技术选型下（本项目技术栈已定，不得更改），
 把含 WebView2 辅助进程的总内存压到 80 MB 以下并不现实。
 选择 Tauri 而非 Electron 的收益主要体现在**体积**（6 MB vs 通常 80 MB+）上。
@@ -275,19 +363,30 @@ temporary-recorder      25.5 MB 工作集   3.9 MB 私有
 
 已通过自动化手段验证（无需人工点界面）：
 
-- 启动建库、表结构、`PRAGMA user_version = 1`、session 单行
+- 启动建库、表结构、`PRAGMA user_version = 2`、session 单行
 - 首次启动自动创建空白标签；`active_tab_id` 正确回写
-- 3 个标签重启后数量/顺序/激活标签/内容完全一致
-- 窗口几何从数据库恢复（1000×700 @ 120,90），且多次重启不再漂移
+- 标签重启后数量/顺序/激活标签/内容完全一致
+- **v1 → v2 内容迁移**：迁移前后逐字节比对一致（`snapshot-tabs.mjs`），
+  内容确实落到临时目录的文件里、库内内容被清空、孤儿文件为 0
+- 窗口几何从数据库恢复，且多次重启不再漂移（inner/outer 配对之后）
 - 正常退出路径（`onCloseRequested` → 强制落库 → `destroy()`）干净退出
-- 存库内容为 UTF-8 且无 CR；中文标题与内容完好
-- 格式化逻辑所依赖的第三方库行为、JSON 错误定位、防抖与换行归一语义
+- 落盘文件为 UTF-8 无 BOM、无 CR；中文标题与内容完好
+- **Rust 文件 I/O 命令**真实调用通过：CRLF 归一、BOM 剥离、原子替换写、
+  `path_status` / `list_dir` / `delete_file`
+  （此项用一次性自检脚本验证，**验证完已删除，从未提交**）
+- **应用自定义的 Rust 命令不需要 capability 声明**（Tauri 的 ACL 只管插件命令）
+- WebView2 浏览器加速键确实被关闭（启动日志确认整条 COM 调用链成功）
+- 格式化所依赖的第三方库行为、JSON 错误定位、防抖与换行归一语义
+- JSON / YAML 换行缩进（含 YAML 兜底与「不干扰语言自身规则」的回归用例）
 
 需要人工在界面上确认（无法脚本化）：
 
-- 实际键盘输入后的 800ms 自动保存与光标/滚动恢复
-- 标签新建/关闭/重命名/拖拽排序的交互手感
-- 格式化与压缩按钮、`Ctrl+F` / `Ctrl+H` 搜索面板、`Alt+Click` 多光标
+- 实际键盘输入后的自动保存（0.8s）与光标/滚动恢复
+- 打开 / 保存 / 另存为的对话框流程（其依赖的文件 I/O 与权限已单独验证）
+- 标签新建/关闭/重命名/拖拽排序的交互手感、标签栏滚轮横向滚动
+- `Ctrl+F` 是否确实弹出 CodeMirror 搜索面板——底层开关已确认关闭，
+  但未做按键注入（向活动桌面注入按键会干扰你正在使用的窗口，故未采用）
+- 主题跟随系统的观感、设置面板交互
 - 输入延迟（< 16ms）的主观体感
 
 ## 本机专用配置

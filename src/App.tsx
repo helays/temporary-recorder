@@ -181,6 +181,11 @@ function App() {
         await useTabsStore.getState().createTab();
       } else {
         useTabsStore.getState().setInitial(tabs, activeTabId);
+        // active_tab_id 指向的标签已被删除时，restoreSession 会回退到第一个；
+        // 把回退结果写回去，免得库里一直留着一个指向不存在标签的值。
+        if (activeTabId !== null && activeTabId !== session?.active_tab_id) {
+          await writeActiveTab(activeTabId);
+        }
       }
       if (cancelled) return;
 
