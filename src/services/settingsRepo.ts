@@ -30,3 +30,8 @@ export function setSetting(key: string, value: string): Promise<boolean> {
     [key, value],
   );
 }
+
+/** 删除设置项（例如标签被关掉之后，它那份「手动指定的语言」也该消失） */
+export function deleteSetting(key: string): Promise<boolean> {
+  return write("删除设置项", `DELETE FROM settings WHERE key = $1`, [key]);
+}

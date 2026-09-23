@@ -91,7 +91,7 @@ pnpm tauri build      # 打包 release 安装包
 （名称、别名、扩展名、`filename` 正则、`load: () => import(...)`）。
 `load` 只在真正打开该语言的文件时执行，因此：
 
-- **首屏不含任何语法包**。Vite 把每个 `import()` 拆成独立 chunk，实测 22 个语言 chunk
+- **首屏不含任何语法包**。Vite 把每个 `import()` 拆成独立 chunk，实测 23 个语言 chunk
   合计约 600 KB，全部不在首屏（见「性能实测」）。
 - 语法包只在首次用到时解析，之后按语言缓存（`Map<LanguageId, Extension>`）。
 - 打开过的每种语言才会占内存：小的（JSON 2 KB、XML 12 KB 的产物）到大的
@@ -102,10 +102,47 @@ pnpm tauri build      # 打包 release 安装包
 - `LanguageDescription.matchFilename` 比扩展名时**大小写敏感**，所以原文与小写文件名各试一次；
 - `legacy-modes` 的**文件名与导出名不一致**（`mode/dockerfile` 导出 `dockerFile`），写错不会报错，
   只会静默没有高亮 —— 因此有 `runtime/check-languages.mjs` 逐个真加载一遍；
-- **语言由文件名决定时永不按内容复探**（`TabEntry.languageFromPath`），
+- **语言由文件名决定时永不按内容复探**（`TabEntry.preferred`），
   否则 `.py` 文件会被内容嗅探成 YAML；
 - 语言是异步加载的，`createEntry` 会**先加载完语法包再创建 EditorState**，
   避免「先无色后上色」的闪烁。
+
+### 内容嗅探：先认代码特征，再认 JSON / YAML
+
+新建标签的临时文件固定叫 `未命名 1-xxxxxxxx.txt`（`services/tempFiles.ts`），扩展名给不出任何
+信息，只能按内容猜。`services/sniff.ts` 是这张特征表，`services/languages.ts:sniffLanguageId`
+的**顺序**是：
+
+1. `sniffBySignature(head)` —— 每个语言要求**两条互相独立的证据**，且尽量锚在行首
+   （Go 要 `package x` 且 `func`/`import (`；Python 要 `def ...:` 且缩进体；
+   PowerShell 要 `$x =`/`param(`/`function Xxx` 且出现 cmdlet）。认不出来返回 null；
+2. 回落到 `detectFormat(整篇)` —— JSON / YAML 语义**保持不变**，格式化功能不受影响。
+
+代码特征排在前面是必须的：`def f():\n  return 1` 是**合法的 YAML 映射**，
+`detectFormat` 会把它判成 YAML（PITFALLS 第 21 条），对「粘贴一段代码」的场景是错的。
+
+只读前 64 KB（`SNIFF_HEAD_LIMIT`）：特征都是行内正则，长文档没必要整篇扫。
+特征表本身是**纯函数**，`runtime/check-sniff.mjs` 里有 31 条正向、11 条负向（中文随笔、
+纯文本、散文里提到 `const`/`SELECT` 关键词）与 14 条冲突样本 —— 负向样本和正向一样重要，
+嗅探最烦人的错法是把随笔染成代码。
+
+### 手动指定语言（兜底）
+
+嗅探不可能覆盖所有片段，所以状态栏的语言名是个**可点的下拉**
+（`components/StatusBar/LanguagePicker.tsx`）：`自动识别` + 纯文本 + 25 种语言，
+选中的打勾。选择落到三处：
+
+- 编辑器：`editorManager.setActiveLanguage(id | null)`，写进 `TabEntry.preferred`
+  （与「文件名决定」共用同一个字段：语义都是「已确定，不再按内容复探」）；
+  大文件降级期间只记选择、不装语法树，体积回落时自动装回来；
+- 数据库：`settings` 表的 `lang:<tabId>` 键。**刻意不加 tabs 列**，免得动
+  AGENTS.md 里记录的表结构、也不需要 v3 迁移；代价是关标签时删键
+  （`tabsStore.closeTab`）+ 启动时清一次孤儿键（`languageActions.pruneLanguageOverrides`）；
+- 状态栏：一条「已把当前标签设为 …」的提示。
+
+恢复时的优先级写在 `services/session.ts:resolveLanguageId`：手动选择 > 文件名 > 内容嗅探。
+`settingsStore.hydrate` 里解析 `lang:` 前缀时会用 `isKnownLanguageId` 校验，
+values 认不出的键直接丢掉（避免历史数据把状态带坏）。
 
 ### 跳转到定义：规则来自实测转储，不靠记忆
 
@@ -202,12 +239,13 @@ pnpm tauri build      # 打包 release 安装包
 | `explore-yaml-indent.mjs` | 打印 YAML 在各种上下文下的真实缩进值（定位缺口用） |
 | `check-utils.mjs` | 防抖语义（含按标签隔离）、换行归一、大文件阈值、UUID |
 | `ts-resolve.mjs` | 让 node 直接跑 `src/` 下的 TS：给无扩展名的相对导入补 `.ts`（用 `--import` 加载） |
-| `check-languages.mjs` | 25 种语言的名字映射、内容嗅探、**逐个真加载并解析出语法树**、缓存与 `text` 语义 |
+| `check-languages.mjs` | 25 种语言的名字映射、内容嗅探、**逐个真加载并解析出语法树**、缓存与 `text` 语义、语言下拉的 id 清单、`lang:` 键的解析 |
+| `check-sniff.mjs` | 内容嗅探：31 条正向（每个语言一段真实片段）+ 11 条负向（中文随笔、散文里提到关键词）+ 14 条冲突样本 + 64 KB 上限 |
 | `probe-defs.mjs` / `probe-defs2.mjs` / `probe-defs3.mjs` | 把各语言真实语法树按缩进转储成 `probe-defs*.txt`，跳转规则照此编写 |
 | `check-jump.mjs` | 9 套跳转规则共 60+ 条断言（引用→定义、self / missing / empty / unsupported、大文件索引耗时） |
 | `measure-lang-memory.mjs` | 语法包与语法树的堆占用（`--expose-gc` + 保留 N 份文档再除以 N） |
 | `measure-langs.ps1` / `measure-langs.mjs` | 四种内容各跑一遍，量应用与 WebView2 的内存、编辑器配色数、状态栏语言胶囊宽度；`.mjs` 负责备份 / 还原数据库与种入单标签会话 |
-| `check-highlight.ps1` | 数编辑器里**精确命中** `defaultHighlightStyle` 各 token 颜色的像素数：纯文本应为 0，Python / C++ 应 > 0 |
+| `check-highlight.ps1` | 数编辑器里**精确命中** `defaultHighlightStyle` 各 token 颜色的像素数，并量状态栏语言胶囊宽度；纯文本应为 0 个 token 像素。`-Override <lang>` 可同时验证手动指定语言优先于嗅探 |
 
 > A/B 构建用 `git worktree add runtime/baseline HEAD` 检出上一个提交来对比产物：
 > 注意**不要**把它的 `node_modules` 用 junction 指回工作区，清理时 `rmdir /s` 会删穿
@@ -276,8 +314,8 @@ node runtime/measure-langs.mjs restore   # 还原实验前的快照（VACUUM INT
 | 空闲内存（含 WebView2 辅助进程） | < 80 MB | **约 367 MB** | ❌ 超出 |
 
 体积比上一版略增（6.65 → 6.85 MB，安装包 2.48 → 2.68 MB）：其中约 0.2 MB 来自
-本轮加入的 25 种语言语法包（前端 22 个按需 chunk 合计约 600 KB，压缩进安装包后约 200 KB）
-与跳转到定义的逻辑；此前那 0.31 MB 增量为自绘菜单引入的剪贴板插件。
+本轮加入的 25 种语言语法包（前端 23 个按需 chunk 合计约 600 KB，压缩进安装包后约 200 KB）
+与跳转到定义、内容嗅探、语言下拉的逻辑；此前那 0.31 MB 增量为自绘菜单引入的剪贴板插件。
 
 **关于内存指标的说明（重要）：**
 
@@ -297,26 +335,28 @@ temporary-recorder      25.9 MB 工作集
 - 若指**含 WebView2 全部辅助进程的总和**，则约 359 MB，**超出 80 MB 的目标**。
 
 这部分开销来自 WebView2 运行时本身，不是本项目代码造成的：前端产物仅
-**约 790 KB**（首屏 JS 768 KB + CSS 16 KB + 图标 5 KB；另有 22 个按需加载的语言 chunk，
+**约 797 KB**（首屏 JS 775 KB + CSS 17 KB + 图标 5 KB；另有 23 个按需加载的语言 chunk，
 合计约 600 KB，只有打开对应语言的文件时才会下载与解析）。
 CodeMirror 与 React 都常驻内存但占比很小。
 在「Tauri v2 + 系统 WebView2」这一技术选型下（本项目技术栈已定，不得更改），
 把含 WebView2 辅助进程的总内存压到 80 MB 以下并不现实。
 选择 Tauri 而非 Electron 的收益主要体现在**体积**（6 MB vs 通常 80 MB+）上。
 
-**语言高亮没有让首屏变大。** 加入 25 种语言与跳转到定义之后，用同一套工具链
-对「功能之前」（`git worktree` 检出上一个提交）与现在各构建一次做 A/B：
+**语言高亮没有让首屏变大。** 用同一套工具链对三个版本各构建一次做 A/B
+（M19 用 `git worktree` 检出上一个提交来量，其余两次是同一工作区）：
 
-| 产物 | 之前 | 现在 |
-|---|---|---|
-| 首屏 JS | 769.77 KB | **768.59 KB** |
-| 首屏 JS（gzip） | 244.41 KB | **242.67 KB** |
-| 语言 chunk | — | 22 个，合计约 600 KB（按需） |
+| 产物 | M19（无语言功能） | M20/M21（语言 + 跳转） | 现在（+ 内容嗅探与语言下拉） |
+|---|---|---|---|
+| 首屏 JS | 769.77 KB | **768.59 KB** | 775.24 KB |
+| 首屏 JS（gzip） | 244.41 KB | 242.67 KB | 245.35 KB |
+| 首屏 CSS | 15.75 KB | 15.80 KB | 17.17 KB |
+| 语言 chunk | — | 22–23 个，合计约 600 KB（按需） | 同左 |
 
-首屏反而小了 1.2 KB：原先 `@codemirror/lang-json` / `lang-yaml` 是静态导入、
-必然进首屏（其中 YAML 语法表本身就有 30 KB），现在被拆到按需 chunk 里；
-新增的跳转逻辑（约 6 KB）没有把这点收益吃掉。语法包各自只占内存，
-实测首次加载 25 种语言合计约 100 ms（都是一次性的，之后走缓存）。
+M20/M21 反而小了 1.2 KB：原先 `@codemirror/lang-json` / `lang-yaml` 是静态导入、
+必然进首屏（其中 YAML 语法表本身就有 30 KB），现在被拆到按需 chunk 里。
+后来加的内容嗅探（一张正则表）与状态栏语言下拉共 +6.7 KB —— 相对「把 25 个语法包
+塞进首屏」（约 600 KB）仍是小两个数量级的代价。语法包各自只占内存，
+实测首次加载 25 种语言合计约 90–100 ms（都是一次性的，之后走缓存）。
 
 ### 语言高亮到底吃多少内存（实测）
 
@@ -388,6 +428,11 @@ WebView2 渲染进程的读数在 100–107 MB 之间来回摆（六进程私有
 - 无边框改造后**几何零漂移**：启动-关闭连续 3 轮，均为 `900x650 @ (502,175)`
 - 剪贴板插件的权限标识符写错会**在构建期**被 tauri-build 拦下（本轮借此确认了
   `clipboard-manager:allow-read-text` / `allow-write-text` 正确）
+- **内存对照**：四种内容各启动一次，应用进程 25.9 / 26.1 / 26.0 / 26.0 MB；
+  WebView2 六进程私有工作集 100.4–107.3 MB，与语言无关（见「性能实测」）
+- **状态栏显示的是语言表里的名字**：量到的语言胶囊宽度为
+  `.txt` 41px、`.py` 42px、`.cpp` 47px，与「纯文本 / Python / C / C++」的字符串宽度一致
+  （旧实现只有 JSON / YAML / 纯文本三个值，`.cpp` 会显示成「纯文本」= 41px）
 - **25 种语言真的能加载**（`runtime/check-languages.mjs`）：逐个 `await import` 语法包，
   用一段该语言的样例建 `EditorState` 并数语法树的命名节点（全部 > 1），
   顺带核对 24 条「文件名 → 语言」映射（含 `.PY` 大写扩展名、`Dockerfile`、`.env`、认不出的返回 null）
@@ -397,21 +442,24 @@ WebView2 渲染进程的读数在 100–107 MB 之间来回摆（六进程私有
   的分隔符规则、Rust `impl` 里的类型名只算引用、JSX/TSX 的组件标签与解构参数）；
   1500 行 Python 实测解析 20ms / 首次建索引 3ms / 缓存后 0.01ms
   （索引按 `Tree` 对象缓存，文档一变自动失效）
-- **首屏 JS 没有变大**（A/B 构建，见「性能实测」）：769.77 KB → 768.59 KB
-- **高亮是真的画出来了**（`runtime/check-highlight.ps1`，数精确颜色像素）：
-  纯文本负载命中 token 颜色 **0** 个像素；Python 负载 234 个
-  （keyword `#770088` 101、definition `#0000ff` 105、propertyName `#116677` 24、number `#116644` 4）；
-  C++ 负载 286 个（keyword 133、typeName `#008855` 153）。
-  这些颜色只有 `defaultHighlightStyle` 在语法树打了 token 标签时才会出现，
-  因此这是「文件名 → 语言 → 动态加载语法包 → 真的着色」整条链路的端到端证据
-- **状态栏显示的是语言表里的名字**：同样三次启动量到的语言胶囊宽度为
-  `.txt` 41px、`.py` 42px、`.cpp` 47px，与「纯文本 / Python / C / C++」的字符串宽度一致
-  （旧实现只有 JSON / YAML / 纯文本三个值，`.cpp` 会显示成「纯文本」= 41px）
-- **内存对照**：四种内容各启动一次，应用进程 25.9 / 26.1 / 26.0 / 26.0 MB；
-  WebView2 六进程私有工作集 100.4–107.3 MB，与语言无关（见「性能实测」）
+- **首屏 JS 没有变大**（A/B 构建，见「性能实测」）：769.77 KB → 768.59 KB → 775.24 KB
+- **内容嗅探**（`runtime/check-sniff.mjs`）：31 条正向、11 条负向、14 条冲突样本全过；
+  负向里有「中文随笔」和「散文里出现 `const`/`SELECT`/`package` 关键词」，
+  也有 64 KB 上限（特征在限制之外不算命中）
+- **临时标签里的代码真的会高亮**（`runtime/check-highlight.ps1`，新安装产物上实测）：
+  - 纯文本负载：token 颜色像素 **0**，状态栏胶囊 **41px**（纯文本）
+  - 同样的 `.txt` 临时文件里放 Go：token 颜色像素 **224**
+    （keyword `#770088` 58、string `#aa1111` 95、definition `#0000ff` 60、number `#116644` 11），
+    状态栏胶囊 **22px**（Go）
+  - 同一份 Go 内容，另在 `settings` 里写一行 `lang:<tabId>=python` 再启动：
+    状态栏胶囊变成 **48px**（Python + 手动选择的圆点标记），token 组成也随之改变
+    —— 一条断言同时证明了「内容嗅探」与「手动选择优先于嗅探且能跨重启」两条链路
+- **手动选择的键解析**：`lang:` 前缀、认不出的值丢弃、空 tabId 丢弃、不影响其它设置
 
 需要人工在界面上确认（无法脚本化）：
 
+- **语言下拉的交互**：点胶囊展开 / 再点关闭 / 点外部关闭 / `Esc` 关闭并回到编辑器 /
+  `↑↓` 移动 / `Enter` 选中；选完后面板上的勾与状态栏的圆点标记
 - **`Ctrl+Click` / `F12` 跳转、`Alt+←` 回退、悬停虚线下划线**：
   合成鼠标事件会被 WebView 当成不可信事件，且本机前台窗口是远程桌面会话，
   无法注入输入，只能人工点一次

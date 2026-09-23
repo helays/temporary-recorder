@@ -15,6 +15,7 @@ import { writeTextFile } from "../services/fileService";
 import { languageIdFromPath } from "../services/languages";
 import { editorManager } from "../extensions/editorManager";
 import { useStatusStore } from "./statusStore";
+import { useSettingsStore } from "./settingsStore";
 
 const UNTITLED_PREFIX = "未命名";
 
@@ -140,6 +141,8 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     // 关闭临时标签后，它的内容仍留在临时目录里可以找回；
     // 清理交给「设置」里的手动操作，只清理没有任何标签引用的孤儿文件。
     editorManager.disposeTab(id);
+    // 手动指定过的语言跟着标签一起消失（settings 表里的 lang:<tabId>）
+    useSettingsStore.getState().setLanguageOverride(id, null);
     await deleteTab(id);
 
     const remaining = tabs.filter((tab) => tab.id !== id);

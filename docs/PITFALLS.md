@@ -269,14 +269,14 @@ CodeMirror 的解析是**惰性**的：视口内的部分先解析，其余在�
 「js-yaml 解析出的顶层值是对象 / 数组」时认 YAML。而 `def f():\n    return x`
 恰好是一个合法的 YAML 映射（键 `def f()`，值 `return x`），于是会被判成 YAML。
 
-这是**刻意的取舍**：格式化功能依赖这套宽松语义（`src/services/format.ts` 的
-`detectFormat` 注释里写明了为什么不能收紧），而临时标签没有文件名可依。影响面被两处收窄：
+**这一条后来被彻底改掉了**：`services/sniff.ts` 的代码特征现在排在 `detectFormat` 之前，
+Python 片段按 Python 走（JSON / YAML 的判定语义没变，只是让出了代码这一块）。
+真正暴露它的场景是「新建标签里粘贴一段代码」——临时文件固定叫 `未命名 1-xxxx.txt`，
+扩展名给不出任何信息，只能靠内容猜，于是这个错误判断直接变成了用户可见的「没高亮 / 颜色不对」。
 
-- **文件标签不受影响**——语言由文件名决定，且带 `languageFromPath` 标记后**永不按内容复探**
-  （否则一个 `.py` 文件会被自己内容改判成 YAML）；
-- 误判的代价限于「颜色不对 + 回车按 YAML 缩进」，不会改坏内容。
-
-`runtime/check-languages.mjs` 把这个行为写成断言，改动嗅探逻辑时会立刻被这条断言提醒。
+留在这里的教训是：**宽松的嗅探必须配负向样本**。现在的
+`runtime/check-sniff.mjs` 里，负向（中文随笔、散文里出现 `const`/`SELECT` 关键词）
+与正向样本是同等重要的——嗅探最烦人的错法是把随笔染成代码。
 
 ## 22. pnpm 的严格目录布局：`@lezer/common` 不在根 `node_modules`
 
@@ -336,3 +336,20 @@ db.exec(`VACUUM INTO '${snapshotPath}'`);   // 单文件、无 WAL、一致
 所以 `measure-langs.mjs` 现在有两道保护：改写前先 `tasklist` 查一遍
 `temporary-recorder.exe`，在跑就拒绝执行（要强行执行得显式加 `--force`）；
 `check` 子命令则用来在不改动任何东西的前提下看一眼现状（应用是否在跑、有几个标签、哪个是激活的）。
+
+## 25. 「多个可选证据」被写成了「全部成立」
+
+写特征表时给辅助函数定了两种语义：
+
+```js
+const allAny = (required, any) => (head) =>
+  required.every((p) => p.test(head)) && any.some((p) => p.test(head));
+```
+
+PowerShell 那条规则我本意是「（`$x =` 或 `param(` 或 `function Xxx`）**且**出现 cmdlet」，
+却把三个可选证据一起塞进了 `required` —— 于是变成「三个都要出现」，
+`$total = 1\nWrite-Output $total` 反而不命中，嗅探结果是纯文本。
+
+阳性样本断言当场把它抓出来了（`check-sniff.mjs`），修法是另加一个语义明确的
+`someAndAny(primary, secondary)`。教训：**同一个 helper 不要同时承担「任一」和「全部」
+两种直觉**，名字里就把语义写清楚，并且第一批断言必须包含「只满足其中一个条件」的样本。

@@ -1,5 +1,5 @@
 import { formatActiveTab, minifyActiveTab } from "../../services/formatActions";
-import { languageLabel } from "../../services/languages";
+import { LanguagePicker } from "./LanguagePicker";
 import { useStatusStore } from "../../stores/statusStore";
 
 export function StatusBar() {
@@ -7,7 +7,6 @@ export function StatusBar() {
   const cursorColumn = useStatusStore((state) => state.cursorColumn);
   const selectionLength = useStatusStore((state) => state.selectionLength);
   const docLength = useStatusStore((state) => state.docLength);
-  const language = useStatusStore((state) => state.language);
   const largeFile = useStatusStore((state) => state.largeFile);
   const message = useStatusStore((state) => state.message);
   const setMessage = useStatusStore((state) => state.setMessage);
@@ -21,9 +20,7 @@ export function StatusBar() {
         <span className="shrink-0 tabular-nums text-app-fg">已选 {selectionLength}</span>
       )}
       <span className="shrink-0 tabular-nums">共 {docLength} 字符</span>
-      <span className="shrink-0 rounded-sm bg-app-hover px-1 text-app-fg">
-        {languageLabel(language)}
-      </span>
+      <LanguagePicker />
       {largeFile && (
         <span className="shrink-0 text-app-warn">已关闭语法高亮（内容过大）</span>
       )}

@@ -8,6 +8,7 @@ import type { Extension } from "@codemirror/state";
 import type { DocFormat, LanguageId } from "../types/models";
 import { yamlIndentFallback } from "../extensions/yamlIndent";
 import { detectFormat } from "./format";
+import { sniffBySignature } from "./sniff";
 
 interface Specs {
   alias?: string[];
@@ -182,6 +183,22 @@ export function languageLabel(id: LanguageId): string {
   return BY_ID.get(id)?.desc.name ?? "纯文本";
 }
 
+/** 该 id 是否真的在语言表里（用于校验 settings 里存下来的选择） */
+export function isKnownLanguageId(value: string): value is LanguageId {
+  return value === "text" || BY_ID.has(value as LanguageId);
+}
+
+/**
+ * 供「手动选择语言」的下拉使用。顺序即语言表顺序（JSON / YAML 在最前，
+ * 它们是这个应用的主要格式），纯文本排第一。
+ */
+export function listLanguages(): readonly { id: LanguageId; label: string }[] {
+  return [
+    { id: "text", label: languageLabel("text") },
+    ...ENTRIES.map((entry) => ({ id: entry.id, label: entry.desc.name })),
+  ];
+}
+
 /**
  * 依文件名推断语言。
  * `matchFilename` 先比 filename 正则、再比扩展名，且扩展名比较是大小写敏感的，
@@ -205,9 +222,15 @@ export function languageIdFromPath(path: string): LanguageId | null {
 
 /**
  * 按内容嗅探语言，只用于没有文件名依据的临时标签。
- * 只认 JSON / YAML —— 重型嗅探既不可靠又浪费性能，认不出就当纯文本。
+ * 顺序：先试**代码特征**（Go / Python / Rust / JS 家族…… 见 services/sniff.ts），
+ * 特征认不出来再回落到 JSON / YAML 嗅探；都认不出就是纯文本。
+ *
+ * 代码特征排在前面是因为 `detectFormat` 会把 `def f():` 这种片段当成 YAML
+ * （它确实是合法的 YAML 映射键），而那个判断对「粘贴一段代码」的场景是错的。
  */
 export function sniffLanguageId(content: string): LanguageId {
+  const bySignature = sniffBySignature(content);
+  if (bySignature !== null) return bySignature;
   const format: DocFormat = detectFormat(content);
   return format;
 }

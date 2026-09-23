@@ -554,6 +554,29 @@ class EditorManager {
     return this.entries.get(tabId)?.language ?? "text";
   }
 
+  /**
+   * 用户手动指定当前标签的语言；传 null 表示恢复「按内容自动识别」。
+   *
+   * 手动选择写进 TabEntry.preferred：它同时也是「语言已确定、不再按内容复探」的标记，
+   * 所以一个字段同时承担了「文件名决定」和「用户指定」两种情况。
+   * 大文件降级期间只记住选择、不装语法树（applyLanguage 里会跳过 dispatch），
+   * 体积回落时由 updateLargeFileState 自动装回来。
+   */
+  setActiveLanguage(language: LanguageId | null): void {
+    const tabId = this.activeTabId;
+    if (tabId === null) return;
+    const entry = this.entries.get(tabId);
+    if (entry === undefined) return;
+
+    entry.preferred = language;
+    if (language === null) {
+      // 恢复自动识别：立刻按当前内容重算一次（degraded 时不做事，与自动路径一致）
+      this.refreshLanguage(tabId, entry.state.doc.toString());
+      return;
+    }
+    void this.applyLanguage(tabId, language);
+  }
+
   /** 取当前激活标签的最新内容 */
   getActiveContent(): string | null {
     if (this.activeTabId === null) return null;

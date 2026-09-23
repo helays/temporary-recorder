@@ -11,8 +11,9 @@ import { languageIdFromPath } from "./languages";
 import { normalizeNewlines } from "../utils/text";
 import { debounce } from "../utils/debounce";
 import { useStatusStore } from "../stores/statusStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import { useTabsStore } from "../stores/tabsStore";
-import type { SessionRow, TabMeta, WindowGeometry } from "../types/models";
+import type { LanguageId, SessionRow, TabMeta, WindowGeometry } from "../types/models";
 import type { TabContent } from "../extensions/editorManager";
 
 /** 窗口大小/位置变更 500ms 防抖落库 */
@@ -83,10 +84,17 @@ export async function loadTabForEditor(
     cursorLine: meta.cursor_line,
     cursorCh: meta.cursor_ch,
     scrollTop: meta.scroll_top,
-    // 打开的文件按文件名立刻确定语言，换行缩进随即生效
-    languageId:
-      meta.file_path === null ? undefined : (languageIdFromPath(meta.file_path) ?? undefined),
+    // 语言优先级：手动指定 > 文件名 > 内容嗅探（不给就是 undefined，交给嗅探）
+    languageId: resolveLanguageId(tabId, meta.file_path),
   };
+}
+
+/** 手动指定过的语言优先于文件名；都没给就返回 undefined（由编辑器按内容嗅探） */
+function resolveLanguageId(tabId: string, filePath: string | null): LanguageId | undefined {
+  const override = useSettingsStore.getState().languageOverrides[tabId];
+  if (override !== undefined) return override;
+  if (filePath === null) return undefined;
+  return languageIdFromPath(filePath) ?? undefined;
 }
 
 /**

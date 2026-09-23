@@ -10,6 +10,7 @@ import { TitleBar } from "./components/TitleBar";
 import { editorManager } from "./extensions/editorManager";
 import { getDbPath, initDb, setDbErrorHandler } from "./services/db";
 import { formatActiveTab, minifyActiveTab } from "./services/formatActions";
+import { pruneLanguageOverrides } from "./services/languageActions";
 import { materializeLegacyContent } from "./services/legacyMigration";
 import { saveTabContent } from "./services/contentStore";
 import {
@@ -199,6 +200,8 @@ function App() {
           await writeActiveTab(activeTabId);
         }
       }
+      // 手动指定过的语言要落在已存在的标签上，其余的键清掉
+      pruneLanguageOverrides();
       if (cancelled) return;
 
       disposers.push(await startWindowGeometryTracking());
