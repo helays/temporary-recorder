@@ -229,6 +229,46 @@ values 认不出的键直接丢掉（避免历史数据把状态带坏）。
 读取时用普通 SQLite 客户端即可，会自动合并 WAL。
 `.gitignore` 已包含 `*.db-wal` / `*.db-shm`。
 
+## GitHub 自动构建与发布
+
+两条 workflow（都在 `.github/workflows/`），跑在 **`windows-latest`**：
+
+| workflow | 触发 | 做什么 | 耗时 |
+|---|---|---|---|
+| `ci.yml` | push 到 `main`（纯文档改动跳过）、PR、手动 | `pnpm install --frozen-lockfile` → `pnpm type-check` → `pnpm build` | 1~2 分钟 |
+| `release.yml` | push tag `v*`、手动 | 装 Rust + 缓存 → 对齐版本号 → `tauri-action` 构建 NSIS 安装包 → 上传工作流产物；tag 上再生成 **草稿** Release | 冷跑 12~18 分钟，缓存命中 5~8 分钟 |
+
+**为什么用 Windows runner 而不是 ubuntu**：锁文件是在 Windows 上生成的，
+`@rollup/rollup-*`、`esbuild` 这类 optional 依赖按平台分发，换平台容易踩
+「找不到 linux-x64-gnu」的坑；而本项目本来就只面向 Windows。
+
+**发版流程**（版本号不用手工改，CI 按 tag 写入三处）：
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+跑完之后：Releases 页面会出现一份 **草稿**，里面是 `闪记_0.1.0_x64-setup.exe`；
+点 Publish 才对外可见。同一个 tag 重跑会更新那份草稿，不会重复创建。
+手动触发 `release.yml` 只会构建 + 上传工作流产物（`tagName` 为空时 tauri-action 不碰 Releases），
+可以拿来验证「CI 上能不能构建成功」而不发版。
+
+几个刻意的地方：
+
+- **版本号由 `.github/scripts/set-version.mjs` 统一写入** `package.json`、`src-tauri/tauri.conf.json`、
+  `src-tauri/Cargo.toml`。产物名与 exe 的版本资源都取自它们，靠人记得手工改三处早晚不一致；
+  脚本对每个文件要求「恰好一处版本声明」，找不到或多处都会直接失败。
+- **`includeUpdaterJson: false`**：本项目没有 updater 插件，不要往 Release 里塞 `latest.json`。
+- **`tauriScript: pnpm tauri`**：pnpm 必须显式指定，否则 action 会去跑 npm/yarn。
+- **不签名**：未签名构建不需要任何密钥（`GITHUB_TOKEN` 自动注入），代价是 SmartScreen 会提示
+  「未知发布者」。
+- **本地 cargo 镜像不参与 CI**：`.cargo/config.toml`（USTC 镜像）已 gitignore，CI 直连 crates.io。
+- **CI 跑不了 `runtime/` 里的验收脚本**：那套脚本按 AGENTS 规定不提交仓库。
+  也就是说 CI 只保证「类型能过、前端能构建、安装包能出」，界面的像素级断言仍只在本地跑
+  （`runtime/check-*.ps1`、`check-*.mjs`）。若以后想让 CI 也跑它们，需要把它们挪到可提交的
+  目录（如 `tools/`）并相应修改 AGENTS。
+
 ## 安装包
 
 当前配置为**全机器安装**（`bundle.windows.nsis.installMode: "perMachine"`）：

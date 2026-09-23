@@ -415,3 +415,27 @@ Ctrl+F / Ctrl+P / Ctrl+R / F12）。**如果哪天这个开关被去掉或调用
 带 `scope`）。要让应用级的「转到行」稳定赢，不能靠扩展顺序，得显式
 `Prec.highest(keymap.of([...]))`；`check-shortcuts.mjs` 断言的是 facet 扁平化后的下标
 （我们的排前面），而不是「键名对得上」。
+
+## 28. 第一次配 GitHub Actions：几个只在 CI 上才会暴露的点
+
+本项目仓库是公开的（Actions 分钟数免费），未签名构建也不需要任何密钥，配起来本来很简单，
+但下面几条是踩过才知道的：
+
+- **runner 要用 `windows-latest`，不要图快用 ubuntu**。pnpm 的锁文件是在 Windows 上生成的，
+  `@rollup/rollup-*`、`esbuild` 这些 optional 依赖按平台分发，换平台经常报
+  「Cannot find module @rollup/rollup-linux-x64-gnu」。本项目的构建本来就只面向 Windows，
+  让 CI 与开发平台一致最省事。
+- **本地 `.cargo/config.toml` 不能提交**。它是 USTC 镜像（本机 crates.io 拉不动才加的），
+  已 gitignore；CI 直连 crates.io 没问题。要是把它提交上去，GitHub runner 反而会去访问 USTC。
+- **版本号散在三个文件里**：`package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`。
+  产物名（`闪记_<版本>_x64-setup.exe`）与 exe 版本资源都取自它们。手工改三处早晚不一致，
+  所以由 CI 在读 tag 时用 `.github/scripts/set-version.mjs` 统一写；脚本要求每个文件
+  「恰好一处版本声明」，找不到或多处就失败（宁可红，也不要静默改错文件）。
+- **`tauri-action` 需要显式 `tauriScript: pnpm tauri`**，否则它按 npm 跑。
+- **`includeUpdaterJson` 默认是 `true`**（会往 Release 上传 `latest.json`）。本项目没有
+  updater 插件，要显式关掉，免得 Release 里多一个没人用的资源。
+- **`tagName` 留空 = 不创建 Release**，正好用来支持「手动触发只构建不发版」。
+- **未签名安装包**：下载时 SmartScreen 会提示「未知发布者」——这是没有代码签名证书的必然结果，
+  不是构建出错。
+- **CI 跑不了 `runtime/` 的验收脚本**（AGENTS 规定该目录不提交）。CI 只能保证类型检查、
+  前端构建与安装包产出；像素级/纯函数断言仍然只在本地跑。

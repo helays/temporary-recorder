@@ -1,0 +1,88 @@
+name: Release
+
+# 打 tag（v*）时构建 Windows 安装包，并生成 Release 草稿。
+# 手动触发（workflow_dispatch）只构建 + 上传工作流产物，不创建 Release：
+# tagName 留空时 tauri-action 不会去碰 Releases。
+#
+# 未签名构建不需要任何密钥，GITHUB_TOKEN 是自动注入的。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # 创建/更新 Release 需要
+
+# 发版不要互相取消：跑到一半被掐掉会留下半个 Release
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 构建安装包
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      # 563 个 crate + LTO + codegen-units=1，没有缓存时很慢（12~18 分钟），
+      # 缓存键跟着 src-tauri/Cargo.lock 走，命中后 5~8 分钟。
+      - name: 缓存 Rust 构建产物
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          cache-on-failure: true
+
+      - name: 用 tag 对齐版本号
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node .github/scripts/set-version.mjs ${{ github.ref_name }}
+
+      - name: 安装依赖
+        # tauri-action 会执行 tauri.conf.json 里的 beforeBuildCommand（pnpm build），
+        # 所以依赖要先装好。
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建（tag 上同时生成草稿 Release）
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # pnpm 必须显式指定，否则 action 会去跑 npm/yarn
+          tauriScript: pnpm tauri
+          # 本项目没有 updater 插件，不要往 Release 里塞 latest.json
+          includeUpdaterJson: false
+          # 冷构建要下几百个 crate，网络抖动时自动重试
+          retryAttempts: 2
+          # 只有 tag 触发时才有 tagName；空值 = 不创建 Release
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: 闪记 ${{ github.ref_name }}
+          releaseBody: |
+            安装包见下方 Assets（`闪记_<版本>_x64-setup.exe`）。
+
+            功能说明见 README；开发、验收与性能数据见 docs/DEVELOPMENT.md。
+          releaseDraft: true
+          prerelease: false
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: shiji-setup
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error

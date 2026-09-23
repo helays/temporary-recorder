@@ -1,6 +1,7 @@
 # 闪记
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![CI](https://github.com/helays/temporary-recorder/actions/workflows/ci.yml/badge.svg)](https://github.com/helays/temporary-recorder/actions/workflows/ci.yml)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D4?style=flat-square)
 ![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-stable-000000?style=flat-square&logo=rust&logoColor=white)
@@ -126,6 +127,10 @@ pnpm install       # 安装前端依赖
 pnpm tauri dev     # 开发模式
 pnpm tauri build   # 打包 release 安装包
 ```
+
+推送到 `main` 会自动跑类型检查与前端构建；打 `v*` tag（如 `v0.1.0`）会在 GitHub Actions 上
+自动构建 Windows 安装包并生成 Release 草稿——发版步骤见
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 更深入的内容在 `docs/` 下：
 
