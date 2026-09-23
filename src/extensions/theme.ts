@@ -4,7 +4,14 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import type { Extension } from "@codemirror/state";
 import type { ResolvedTheme } from "../types/models";
 
-/** 与主题无关的外观：字体、内边距、填满容器 */
+/**
+ * 与主题无关的外观：字体、内边距、填满容器、编辑器滚动条。
+ *
+ * 滚动条按 VS Code 的口径：总宽 14px、轨道透明、两端无箭头，
+ * 拇指用透明边框 + background-clip 收成**可见约 8px** 的圆角条（居中）；
+ * 空闲时整条透明，鼠标进入编辑器才浮现——与全局细滚动条同一套行为，只是更宽。
+ * 颜色走 index.css 里的 CSS 变量，所以两套主题共用这一份定义。
+ */
 const sharedChrome = EditorView.theme({
   "&": {
     height: "100%",
@@ -23,6 +30,33 @@ const sharedChrome = EditorView.theme({
   },
   "&.cm-focused": {
     outline: "none",
+  },
+  ".cm-scroller::-webkit-scrollbar": {
+    width: "14px",
+    height: "14px",
+  },
+  ".cm-scroller::-webkit-scrollbar-track": {
+    background: "transparent",
+  },
+  ".cm-scroller::-webkit-scrollbar-thumb": {
+    backgroundColor: "transparent",
+    border: "3px solid transparent",
+    backgroundClip: "content-box",
+    borderRadius: "7px",
+  },
+  ".cm-scroller:hover::-webkit-scrollbar-thumb": {
+    backgroundColor: "var(--app-scroll-thumb)",
+  },
+  ".cm-scroller::-webkit-scrollbar-thumb:hover": {
+    backgroundColor: "var(--app-scroll-thumb-strong)",
+  },
+  ".cm-scroller::-webkit-scrollbar-thumb:active": {
+    backgroundColor: "var(--app-scroll-thumb-pressed)",
+  },
+  ".cm-scroller::-webkit-scrollbar-button": {
+    display: "none",
+    width: "0",
+    height: "0",
   },
 });
 

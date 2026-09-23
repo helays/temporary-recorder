@@ -1,7 +1,7 @@
+import { Prec, type Extension } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
-import type { Extension } from "@codemirror/state";
 import { defaultKeymap, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { openSearchPanel } from "@codemirror/search";
+import { gotoLine, openSearchPanel } from "@codemirror/search";
 
 export interface AppKeymapHandlers {
   newTab: () => void;
@@ -20,12 +20,16 @@ export interface AppKeymapHandlers {
   saveAs: () => void;
   /** 打开设置（Ctrl+,） */
   openSettings: () => void;
+  /** 打开使用说明（F1 或 帮助 ▸ 使用说明） */
+  openHelp: () => void;
 }
 
 /**
  * 应用级快捷键。
  * 放在 defaultKeymap / searchKeymap 之前，因此优先级更高；
  * 未在此声明的按键（如 Ctrl+D 选下一个相同词、Alt+Click 多光标）继续走 CodeMirror 默认行为。
+ *
+ * 与搜索有关的三条：Ctrl+F（searchKeymap 自带）、Ctrl+R（这里补）、Ctrl+G（这里补，到行）。
  */
 export function appKeymap(handlers: AppKeymapHandlers): Extension {
   const run = (fn: () => void) => (): boolean => {
@@ -44,8 +48,11 @@ export function appKeymap(handlers: AppKeymapHandlers): Extension {
       { key: "Mod-o", run: run(handlers.openFile), preventDefault: true },
       { key: "Mod-Shift-s", run: run(handlers.saveAs), preventDefault: true },
       { key: "Mod-,", run: run(handlers.openSettings), preventDefault: true },
-      // Ctrl+H 打开替换：CodeMirror 的搜索面板本身包含替换输入框
-      { key: "Mod-h", run: openSearchPanel, preventDefault: true },
+      // Ctrl+F / Ctrl+R 都打开搜索面板（面板里同时有搜索与替换两个输入框）。
+      // Ctrl+F 由 CodeMirror 的 searchKeymap 提供，这里只补 Ctrl+R，
+      // 并且让它在编辑器的任何位置都能用（不再有 Ctrl+H 别名）。
+      { key: "Mod-r", run: openSearchPanel, preventDefault: true },
+      { key: "F1", run: run(handlers.openHelp), preventDefault: true },
       { key: "Mod-Tab", run: run(handlers.nextTab), preventDefault: true },
       { key: "Mod-Shift-Tab", run: run(handlers.previousTab), preventDefault: true },
       { key: "Mod-PageDown", run: run(handlers.nextTab), preventDefault: true },
@@ -58,6 +65,13 @@ export function appKeymap(handlers: AppKeymapHandlers): Extension {
         preventDefault: true,
       })),
     ]),
+    /**
+     * Ctrl+G 转到行。
+     * 单独用 Prec.highest 包一层：CodeMirror 的 searchKeymap 里也有一条 `Mod-g`
+     * （面板内的「下一个匹配」，带 scope），靠扩展顺序决定谁赢是运气，
+     * 显式提高优先级才稳。面板里的 F3 / Shift-F3 与 Ctrl+Alt+G 不受影响。
+     */
+    Prec.highest(keymap.of([{ key: "Mod-g", run: gotoLine, preventDefault: true }])),
     keymap.of(defaultKeymap),
     keymap.of(historyKeymap),
     keymap.of([indentWithTab]),

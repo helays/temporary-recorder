@@ -87,7 +87,9 @@ NSIS 模板里的 `RestorePreviousInstallLocation`（生成的 `installer.nsi`�
 wry 默认把 WebView2 的 `AreBrowserAcceleratorKeysEnabled` 保持为默认值 `true`，
 于是 **Ctrl+F / F3 打开的是 WebView2 自带的「页内查找」**，CodeMirror 的搜索面板根本打不开
 ——自带查找条没有正则 / 大小写 / 全词，也没有替换。
-（`Ctrl+N`、`Ctrl+H` 不在被抢的列表里；`Ctrl+P` / `Ctrl+R` / `F12` / 缩放同样会被抢。）
+（当时只有 `Ctrl+N` 与 `Ctrl+H` 不在被抢的列表里；`Ctrl+P` / `Ctrl+R` / `F12` / 缩放会被抢。
+后来应用的「替换」从 `Ctrl+H` 改成了 `Ctrl+R`，能用就是因为下面这个开关已被关掉——
+详见第 27 条。）
 
 Tauri 的配置项里没有这个开关，只能取底层 COM 接口自行设置：
 
@@ -353,3 +355,40 @@ PowerShell 那条规则我本意是「（`$x =` 或 `param(` 或 `function Xxx`�
 阳性样本断言当场把它抓出来了（`check-sniff.mjs`），修法是另加一个语义明确的
 `someAndAny(primary, secondary)`。教训：**同一个 helper 不要同时承担「任一」和「全部」
 两种直觉**，名字里就把语义写清楚，并且第一批断言必须包含「只满足其中一个条件」的样本。
+
+## 26. 面板里的滚动条很粗；CodeMirror 根本不提供滚动条样式
+
+现象：语言下拉（`overflow-y-auto`）与设置弹窗的滚动条是 Windows 默认那根——约 17px、
+浅灰实色轨道、两端各一个箭头按钮，在自绘的窄面板里非常抢眼；编辑器右侧那根同样是默认样式。
+
+两件事值得记下来：
+
+- **CodeMirror 6 完全不管滚动条**。查 `@codemirror/view` 的 baseTheme：`.cm-scroller`
+  只声明了 `overflow-x: auto`（竖轴会被 CSS 规则推导成 auto），没有任何 `::-webkit-scrollbar`
+  规则。真正的滚动元素是 `.cm-scroller`（也就是 `view.scrollDOM`），要改必须自己写这个选择器；
+  写 `.cm-editor` 或 `.cm-content` 都没用。
+- **`::-webkit-scrollbar` 与 `scrollbar-width` / `scrollbar-color` 不要混用**。
+  WebView2 就是 Chromium，两套机制同时出现时后者会走标准滚动条路径，
+  宽度就变得不可预期（`scrollbar-width: thin` 会覆盖掉你写的 `width: 8px`）。
+  这里只用 `::-webkit-scrollbar`，宽度精确可控——8px 给面板，14px 给编辑器（VS Code 口径）。
+  唯一例外是标签栏：`.tabstrip` 用 `scrollbar-width: none` + `display: none` **完全隐藏**
+  （两个内核都照顾到，且它本来就不需要滚动条）。
+
+另外，「悬停才浮现」只能按「鼠标进入容器」判定（`*:hover::-webkit-scrollbar-thumb`）。
+纯 CSS 做不到「只在滚动条那一列浮现」——那需要监听鼠标位置，成本与收益不成正比。
+副作用是这份行为**没法用 PrintWindow 验证**（截屏时鼠标不在窗口里，拇指是透明的），
+所以像素脚本只断言「默认轨道/拇指一个像素都没有、正文不侵入预留区」，
+滚动条规则本身由 `check-scrollbar.mjs` 读产物断言，悬停效果只能人眼确认。
+
+## 27. `Ctrl+R` 能用，是因为浏览器加速键被关掉了
+
+`Ctrl+R` 在浏览器里是「重新加载」。本项目能把它当「替换」用，是因为启动时在 Rust 侧调了
+`SetAreBrowserAcceleratorKeysEnabled(false)`（见 `src-tauri/src/lib.rs`，注释里点名了
+Ctrl+F / Ctrl+P / Ctrl+R / F12）。**如果哪天这个开关被去掉或调用失败**，
+`Ctrl+F` 会变回 WebView2 自带的查找条、`Ctrl+R` 会重新加载页面、`F12` 会打开开发者工具。
+日志里有一行「已关闭浏览器加速键」可以确认；失败时也会打印原因。
+
+同时记一下 `Ctrl+G`：CodeMirror 的 `searchKeymap` 里本来就有 `Mod-g`（面板内的「下一个匹配」，
+带 `scope`）。要让应用级的「转到行」稳定赢，不能靠扩展顺序，得显式
+`Prec.highest(keymap.of([...]))`；`check-shortcuts.mjs` 断言的是 facet 扁平化后的下标
+（我们的排前面），而不是「键名对得上」。

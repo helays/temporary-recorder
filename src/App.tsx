@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { About } from "./components/About";
 import { DropOverlay } from "./components/DropOverlay";
@@ -100,7 +100,19 @@ editorManager.configure({
     openSettings: () => {
       useStatusStore.getState().setSettingsOpen(true);
     },
+    openHelp: () => {
+      useStatusStore.getState().setHelpOpen(true);
+    },
   },
+});
+
+/**
+ * 「使用说明」正文有一万多字，按需加载：不按 F1 就不会进首屏
+ * （与语法包同一套思路，见 services/languages.ts）。
+ */
+const Help = lazy(async () => {
+  const module = await import("./components/Help");
+  return { default: module.Help };
 });
 
 /** 双 rAF 后再显示窗口：确保首帧已经绘制，避免白屏闪烁 */
@@ -145,6 +157,8 @@ function App() {
   const setSettingsOpen = useStatusStore((state) => state.setSettingsOpen);
   const aboutOpen = useStatusStore((state) => state.aboutOpen);
   const setAboutOpen = useStatusStore((state) => state.setAboutOpen);
+  const helpOpen = useStatusStore((state) => state.helpOpen);
+  const setHelpOpen = useStatusStore((state) => state.setHelpOpen);
 
   // 应用主题到文档与编辑器。窗口在启动完成前是隐藏的，所以这里不会闪。
   useEffect(() => {
@@ -256,6 +270,11 @@ function App() {
       <DropOverlay />
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
       {aboutOpen && <About onClose={() => setAboutOpen(false)} />}
+      {helpOpen && (
+        <Suspense fallback={null}>
+          <Help onClose={() => setHelpOpen(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }

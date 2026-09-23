@@ -1,3 +1,4 @@
+import { editorManager } from "../extensions/editorManager";
 import { useStatusStore } from "../stores/statusStore";
 import { useTabsStore } from "../stores/tabsStore";
 import { openFileIntoNewTab, saveActiveTab, saveActiveTabAs } from "./fileActions";
@@ -61,6 +62,23 @@ export function installWindowShortcuts(): () => void {
           event.preventDefault();
           useStatusStore.getState().setSettingsOpen(true);
           return;
+        case "f":
+        case "F":
+          // 编辑器有焦点时由 CodeMirror 的 searchKeymap 处理；这里兜住焦点在别处的情况
+          event.preventDefault();
+          editorManager.openSearch();
+          return;
+        case "r":
+        case "R":
+          // 替换：与 Ctrl+F 同一个面板（面板里带替换输入框）
+          event.preventDefault();
+          editorManager.openSearch();
+          return;
+        case "g":
+        case "G":
+          event.preventDefault();
+          editorManager.goToLine();
+          return;
         case "Tab":
           event.preventDefault();
           void useTabsStore.getState().cycleTab(1);
@@ -93,6 +111,13 @@ export function installWindowShortcuts(): () => void {
         event.preventDefault();
         minifyActiveTab();
       }
+      return;
+    }
+
+    // F1：使用说明（不带任何修饰键）
+    if (event.key === "F1") {
+      event.preventDefault();
+      useStatusStore.getState().setHelpOpen(true);
     }
   };
 

@@ -27,6 +27,9 @@ interface StatusState {
   /** 「关于」弹窗是否打开（原生 About 菜单项随原生菜单栏一起没了，改为自绘） */
   aboutOpen: boolean;
   setAboutOpen: (open: boolean) => void;
+  /** 「使用说明」弹窗是否打开（F1 或 帮助 ▸ 使用说明） */
+  helpOpen: boolean;
+  setHelpOpen: (open: boolean) => void;
   setCursor: (
     line: number,
     column: number,
@@ -55,6 +58,8 @@ export const useStatusStore = create<StatusState>((set) => ({
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
   aboutOpen: false,
   setAboutOpen: (aboutOpen) => set({ aboutOpen }),
+  helpOpen: false,
+  setHelpOpen: (helpOpen) => set({ helpOpen }),
   setCursor: (cursorLine, cursorColumn, selectionLength, docLength) =>
     set({ cursorLine, cursorColumn, selectionLength, docLength }),
   setLanguage: (language) => set({ language }),

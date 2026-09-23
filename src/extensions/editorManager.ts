@@ -22,6 +22,7 @@ import { bracketMatching, indentOnInput, indentUnit } from "@codemirror/language
 import { closeBrackets } from "@codemirror/autocomplete";
 import { history, redo, selectAll, undo } from "@codemirror/commands";
 import {
+  gotoLine,
   highlightSelectionMatches,
   openSearchPanel,
   search,
@@ -647,6 +648,11 @@ class EditorManager {
   /** 打开搜索/替换面板 */
   openSearch(): boolean {
     return this.runCommand(openSearchPanel);
+  }
+
+  /** 打开「转到行」对话框（行号，或 `行:列`） */
+  goToLine(): boolean {
+    return this.runCommand(gotoLine);
   }
 
   focus(): void {

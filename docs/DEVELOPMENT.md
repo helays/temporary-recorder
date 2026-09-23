@@ -76,6 +76,40 @@ pnpm tauri build      # 打包 release 安装包
   不需要第三方插件。原理见 [PITFALLS.md 第 14 条](PITFALLS.md)。
 - 工具栏少了一行：原先 = 标题栏 31px + 菜单栏 19px，现在 = 一行 32px。
 
+### 快捷键与应用内帮助
+
+- 三个与编辑定位有关的键：`Ctrl+F` 搜索（CodeMirror 的 `searchKeymap` 自带）、
+  `Ctrl+R` 替换（同一面板，本应用补的绑定）、`Ctrl+G` 转到行（`@codemirror/search`
+  的 `gotoLine`，自带对话框，支持「行」与「行:列」）。
+  `Ctrl+H` 已被**移除**（不留别名）。`Ctrl+Alt+G` 是 CodeMirror 原生的转到行，同样可用。
+- 编辑器内的键位写在 `extensions/keymap.ts`。`Mod-g` 用 `Prec.highest(keymap.of([...]))`
+  单独包一层：`searchKeymap` 里也有一条 `Mod-g`（面板内的「下一个匹配」），
+  靠扩展顺序决定谁赢是运气，显式提高优先级才稳。`runtime/check-shortcuts.mjs` 直接断言
+  「我们的绑定排在 CodeMirror 那条之前」——即 facet 扁平化后的下标大小。
+- 焦点不在编辑器时由 `services/shortcuts.ts` 的窗口级兜底负责（`f` / `r` / `g` / `F1`），
+  这是 README 一直承诺的行为；同一个脚本用 `window` 桩喂假事件验证这几个分支真的被走到。
+- 应用内帮助 = `components/Help/`（`sections.tsx` 是正文，`index.tsx` 是弹窗外壳，
+  与设置弹窗同一套交互），入口是 `F1` 与 帮助 ▸ 使用说明。正文是手写 TSX，
+  **不引入 markdown 渲染依赖**；因此这份内容与 README 手工同步——
+  改功能时两处一起改（README 的快捷键表 / 菜单表 / 语法高亮与跳转三节是同一份事实）。
+- 「关于」与「使用说明」刻意分开：关于讲版本、数据目录与简介，帮助讲怎么用。
+
+### 滚动条
+
+- `index.css` 里一组**全局细滚动条**（8px、透明轨道、圆角拇指、隐藏两端箭头、
+  鼠标进入容器才浮现）。只用 `::-webkit-scrollbar`：WebView2 就是 Chromium，
+  而 `scrollbar-width` / `scrollbar-color` 与它同时写会互相干扰，宽度会变得不可预期。
+  `.tabstrip` 是例外——标签栏**完全隐藏**滚动条（原来的设计，保持不变）。
+- 编辑器那根在 `extensions/theme.ts` 的 `sharedChrome` 里按 VS Code 口径定义：
+  总宽 14px、轨道透明、拇指用 `border: 3px solid transparent` + `background-clip: content-box`
+  收成可见约 8px（14 − 3×2）的圆角条、无箭头、悬停浮现。颜色取 `index.css` 的 CSS 变量，
+  所以浅色 / 深色共用一份定义。
+- CodeMirror **不提供任何滚动条样式**（`@codemirror/view` 的 baseTheme 里只有
+  `overflow-x: auto`，竖轴靠 CSS 规则推导成 auto），真正的滚动元素是 `.cm-scroller`
+  （`view.scrollDOM`），所以要改就得自己写这个选择器。
+- 那个「概览标尺 / 代码缩略图」没有做：CodeMirror 没有现成 API，自绘或引依赖
+  都和这个项目的「轻」定位不符。
+
 ### 三处刻意的实现选择
 
 - **撤销 / 重做 / 全选调 CodeMirror 自己的命令**，而不是浏览器的原生行为——
@@ -246,6 +280,9 @@ values 认不出的键直接丢掉（避免历史数据把状态带坏）。
 | `measure-lang-memory.mjs` | 语法包与语法树的堆占用（`--expose-gc` + 保留 N 份文档再除以 N） |
 | `measure-langs.ps1` / `measure-langs.mjs` | 四种内容各跑一遍，量应用与 WebView2 的内存、编辑器配色数、状态栏语言胶囊宽度；`.mjs` 负责备份 / 还原数据库与种入单标签会话 |
 | `check-highlight.ps1` | 数编辑器里**精确命中** `defaultHighlightStyle` 各 token 颜色的像素数，并量状态栏语言胶囊宽度；纯文本应为 0 个 token 像素。`-Override <lang>` 可同时验证手动指定语言优先于嗅探 |
+| `check-shortcuts.mjs` | 快捷键：keymap facet 里 `Mod-f`/`Mod-r`/`Mod-g`/`F1`/`F3` 的存在与优先级（`Mod-g` 指向 `gotoLine`、且排在 CodeMirror 那条之前）、`Mod-h` 已移除、菜单加速键、窗口级兜底的真实按键行为（用 `window` 桩喂假事件） |
+| `check-scrollbar.mjs` | 滚动条规则是否进入产物：全局 8px 细滚动条（透明轨道、悬停浮现、无箭头、不与 `scrollbar-width` 混用）、编辑器 `.cm-scroller` 的 14px / `background-clip` 拇指 |
+| `check-scrollbar.ps1` | 像素级：种入长文档后量编辑器右缘 14px——默认 Chromium 轨道/拇指颜色像素必须为 0，且正文不得侵入该条（应用在跑时拒绝执行，需 `-Force`） |
 
 > A/B 构建用 `git worktree add runtime/baseline HEAD` 检出上一个提交来对比产物：
 > 注意**不要**把它的 `node_modules` 用 junction 指回工作区，清理时 `rmdir /s` 会删穿
@@ -345,18 +382,19 @@ CodeMirror 与 React 都常驻内存但占比很小。
 **语言高亮没有让首屏变大。** 用同一套工具链对三个版本各构建一次做 A/B
 （M19 用 `git worktree` 检出上一个提交来量，其余两次是同一工作区）：
 
-| 产物 | M19（无语言功能） | M20/M21（语言 + 跳转） | 现在（+ 内容嗅探与语言下拉） |
+| 产物 | M19（无语言功能） | M20/M21（语言 + 跳转） | 现在（+ 嗅探 / 语言下拉 / 快捷键 / 帮助 / 滚动条） |
 |---|---|---|---|
-| 首屏 JS | 769.77 KB | **768.59 KB** | 775.24 KB |
-| 首屏 JS（gzip） | 244.41 KB | 242.67 KB | 245.35 KB |
-| 首屏 CSS | 15.75 KB | 15.80 KB | 17.17 KB |
-| 语言 chunk | — | 22–23 个，合计约 600 KB（按需） | 同左 |
+| 首屏 JS | 769.77 KB | **768.59 KB** | 776.86 KB |
+| 首屏 JS（gzip） | 244.41 KB | 242.67 KB | 245.76 KB |
+| 首屏 CSS | 15.75 KB | 15.80 KB | 18.81 KB |
+| 按需 chunk | — | 23 个语言 chunk，约 600 KB | 同左 + 「使用说明」12.15 KB |
 
 M20/M21 反而小了 1.2 KB：原先 `@codemirror/lang-json` / `lang-yaml` 是静态导入、
 必然进首屏（其中 YAML 语法表本身就有 30 KB），现在被拆到按需 chunk 里。
-后来加的内容嗅探（一张正则表）与状态栏语言下拉共 +6.7 KB —— 相对「把 25 个语法包
-塞进首屏」（约 600 KB）仍是小两个数量级的代价。语法包各自只占内存，
-实测首次加载 25 种语言合计约 90–100 ms（都是一次性的，之后走缓存）。
+之后加的内容嗅探（一张正则表）、状态栏语言下拉、快捷键、帮助与滚动条共 +8.3 KB ——
+相对「把 25 个语法包塞进首屏」（约 600 KB）仍是小两个数量级。
+帮助正文一万多字，用 `React.lazy` 拆成独立 chunk（12.15 KB），**不按 F1 就不会加载**。
+语法包各自只占内存，实测首次加载 25 种语言合计约 90–100 ms（都是一次性的，之后走缓存）。
 
 ### 语言高亮到底吃多少内存（实测）
 
@@ -442,7 +480,7 @@ WebView2 渲染进程的读数在 100–107 MB 之间来回摆（六进程私有
   的分隔符规则、Rust `impl` 里的类型名只算引用、JSX/TSX 的组件标签与解构参数）；
   1500 行 Python 实测解析 20ms / 首次建索引 3ms / 缓存后 0.01ms
   （索引按 `Tree` 对象缓存，文档一变自动失效）
-- **首屏 JS 没有变大**（A/B 构建，见「性能实测」）：769.77 KB → 768.59 KB → 775.24 KB
+- **首屏 JS 没有变大**（A/B 构建，见「性能实测」）：769.77 KB → 768.59 KB → 776.86 KB
 - **内容嗅探**（`runtime/check-sniff.mjs`）：31 条正向、11 条负向、14 条冲突样本全过；
   负向里有「中文随笔」和「散文里出现 `const`/`SELECT`/`package` 关键词」，
   也有 64 KB 上限（特征在限制之外不算命中）
@@ -455,9 +493,33 @@ WebView2 渲染进程的读数在 100–107 MB 之间来回摆（六进程私有
     状态栏胶囊变成 **48px**（Python + 手动选择的圆点标记），token 组成也随之改变
     —— 一条断言同时证明了「内容嗅探」与「手动选择优先于嗅探且能跨重启」两条链路
 - **手动选择的键解析**：`lang:` 前缀、认不出的值丢弃、空 tabId 丢弃、不影响其它设置
+- **快捷键**（`runtime/check-shortcuts.mjs`）：keymap facet 里 `Mod-f` / `Mod-r` / `Mod-g` /
+  `F1` / `F3` 都在，`Mod-h` 已无绑定；`Mod-r` 的 `run` **就是** `openSearchPanel`、
+  `Mod-g` 的是 `gotoLine`（函数同一性）；`Mod-g` 在扁平化后的绑定表里排在
+  CodeMirror 那条 findNext 之前（`Prec.highest` 真的生效）；菜单里 查找/替换/转到行
+  的加速键分别是 `Ctrl+F`/`Ctrl+R`/`Ctrl+G`、编辑菜单里不再出现 `Ctrl+H`、
+  帮助第一项是「使用说明」且加速键为 `F1`；窗口级兜底用 `window` 桩喂假事件，
+  验证 `Ctrl+F`/`Ctrl+R`/`Ctrl+G`/`F1` 真的走到对应动作、`Ctrl+H` 什么都不做、
+  已 `preventDefault` 的事件被跳过、`dispose` 后监听器被摘掉
+- **滚动条**：
+  - 规则层（`runtime/check-scrollbar.mjs`，读产物并归一化压缩写法）：全局
+    `::-webkit-scrollbar` 宽 8px、轨道与角落透明、空闲拇指透明、容器 hover 才着色、
+    hover/active 加深、箭头隐藏、没有混用 `scrollbar-width`、标签栏仍完全隐藏；
+    编辑器的 `.cm-scroller` 是 14px、轨道透明、拇指 `border:3px solid transparent` +
+    `background-clip:content-box`（可见 14−3×2 = 8px）、悬停才浮现
+  - 像素层（`runtime/check-scrollbar.ps1`，种入长文档后量编辑器右缘 14px）：
+    默认 Chromium 轨道色 `#f1f1f1` **0 像素**、默认拇指色 `#c1c1c1` **0 像素**、
+    正文侵入该条 **0 像素**、其它非白像素 **0 像素** —— 最后一条同时证明了
+    「悬停才浮现」（截屏时鼠标不在窗口里，滚动条完全不可见）
+- **首屏 JS**：776.86 KB（「使用说明」12.15 KB 走 `React.lazy` 独立 chunk，
+  不按 F1 不加载；M19 是 769.77 KB，语言功能那次反而小了 1.2 KB）
 
 需要人工在界面上确认（无法脚本化）：
 
+- **三个快捷键真的打开对应面板**：`Ctrl+F` / `Ctrl+R`（同一个搜索面板，焦点在搜索框）/
+  `Ctrl+G`（转到行对话框，可写「行:列」）；`Ctrl+H` 无反应
+- **`F1` / 帮助 ▸ 使用说明**：弹窗渲染、左侧目录跳转、`Esc` 与点外部关闭
+- **滚动条的悬停浮现**：鼠标移进编辑器 / 面板时拇指才出现、移开后消失
 - **语言下拉的交互**：点胶囊展开 / 再点关闭 / 点外部关闭 / `Esc` 关闭并回到编辑器 /
   `↑↓` 移动 / `Enter` 选中；选完后面板上的勾与状态栏的圆点标记
 - **`Ctrl+Click` / `F12` 跳转、`Alt+←` 回退、悬停虚线下划线**：

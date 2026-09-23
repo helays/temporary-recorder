@@ -221,9 +221,18 @@ export function buildMenuSections(themePref: ThemePref): MenuSection[] {
           kind: "item",
           id: "replace",
           label: "替换",
-          accelerator: "Ctrl+H",
+          accelerator: "Ctrl+R",
           run: () => {
             editorManager.openSearch();
+          },
+        },
+        {
+          kind: "item",
+          id: "goto-line",
+          label: "转到行…",
+          accelerator: "Ctrl+G",
+          run: () => {
+            editorManager.goToLine();
           },
         },
       ],
@@ -256,11 +265,18 @@ export function buildMenuSections(themePref: ThemePref): MenuSection[] {
       items: [
         {
           kind: "item",
+          id: "open-help",
+          label: "使用说明",
+          accelerator: "F1",
+          run: () => useStatusStore.getState().setHelpOpen(true),
+        },
+        { kind: "separator" },
+        {
+          kind: "item",
           id: "about",
           label: "关于 闪记",
           run: () => useStatusStore.getState().setAboutOpen(true),
         },
-        { kind: "separator" },
         { kind: "item", id: "open-data-dir", label: "在资源管理器中打开数据目录", run: openDataDir },
       ],
     },
