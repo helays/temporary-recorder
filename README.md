@@ -47,7 +47,7 @@
 - WebView2 Runtime（Windows 10/11 通常已自带）
 
 > **注意：`cargo` 可能不在 `PATH` 中。**
-> 本机 Rust 安装在 `%USERPROFILE%\.cargo\bin`，但该目录未必在 `PATH` 里。
+> Rust 通常安装在 `%USERPROFILE%\.cargo\bin`，但该目录未必在 `PATH` 里。
 > 如果 `pnpm tauri dev` 报找不到 `cargo`，先执行：
 >
 > ```powershell
@@ -74,12 +74,6 @@ pnpm tauri build      # 打包 release 安装包
 
 ```
 %APPDATA%\com.temporary.recorder\recorder.db
-```
-
-本机实测完整路径：
-
-```
-C:\Users\helei\AppData\Roaming\com.temporary.recorder\recorder.db
 ```
 
 三张表：`tabs`（标签元数据，含内容所在的文件路径）、`session`（单行，激活标签与窗口几何）、
@@ -114,7 +108,7 @@ C:\Users\helei\AppData\Roaming\com.temporary.recorder\recorder.db
   因此用本应用保存过的 CRLF 文件会被转成 LF。非 UTF-8（如 GBK）文件会明确报错，不会产生乱码。
 - **写入是原子的**：先写同目录临时文件再改名覆盖，写到一半失败不会把原文件截断。
 
-## 设置（`Ctrl+,` 或状态栏「设置」）
+## 设置（`Ctrl+,` 或顶部菜单 设置 ▸ 打开设置…）
 
 - **主题**：跟随系统 / 浅色 / 深色
 - **临时目录**：查看当前生效目录、选择新目录、恢复默认、在资源管理器中打开
@@ -134,7 +128,7 @@ C:\Users\helei\AppData\Roaming\com.temporary.recorder\recorder.db
 ├──────────────────────────────────────────────────────────────────────┤
 │  1  {                                                                │ 编辑器
 ├──────────────────────────────────────────────────────────────────────┤
-│ 行 3, 列 1 · JSON · 27 字符         格式化  压缩  ×  设置           │ 状态栏
+│ 行 3, 列 1 · JSON · 27 字符              格式化  压缩                │ 状态栏
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -286,7 +280,7 @@ runtime/                 # 临时文件与验收脚本，禁止提交
 ### 3. 窗口几何：inner 与 outer 必须配对
 
 Tauri 的 `setSize()` 设置的是**客户区**尺寸，而 `outerSize()` 读的是含标题栏与边框的
-外框尺寸（本机实测相差 16×39）。两者混用会导致**每次重启窗口都按边框尺寸长大一圈**。
+外框尺寸（实测相差 16×39）。两者混用会导致**每次重启窗口都按边框尺寸长大一圈**。
 现在统一为 `innerSize()` 采集 + `setSize()` 恢复，位置则用
 `outerPosition()` + `setPosition()` 配对，并存逻辑像素以免 DPI 变化后错位。
 
@@ -435,13 +429,13 @@ Windows 上的文件拖放由 Tauri/wry 接管，前端只需监听
 
 - tao 处理无边框的方式不是抹掉窗口样式，而是**保留 `WS_CAPTION` / `WS_THICKFRAME`，
   只在 `WM_NCCALCSIZE` 里返回一个内缩的客户区**，内缩量 =
-  `SM_CXSIZEFRAME + SM_CXPADDEDBORDER`（本机 8px），顶部在 Win11 上是
+  `SM_CXSIZEFRAME + SM_CXPADDEDBORDER`（96 DPI 下 8px），顶部在 Win11 上是
   `round(dpi/96)`（96 DPI 下 1px，注释里写明「顶边留 0 会让最上面 1-2 行像素被遮住」）。
   于是 DWM 依然画阴影与圆角，左右下三边依然能被 `DefWindowProc` 命中为缩放边框。
 - **顶边**因为只有 1px，tao 自己在 `WM_NCHITTEST` 里补了一个 `HTTOP`。
   也就是说四条边都能拖拽缩放，不需要社区插件。
 
-实测（`runtime/check-chrome.ps1`，与本机 tao 源码推出的数字一致）：
+实测（`runtime/check-chrome.ps1`，与 tao 源码推出的数字一致）：
 
 ```
 window rect  916x659      （改之前 916x709，少的 50px = 标题栏 31 + 原生菜单 19）
@@ -522,7 +516,7 @@ node runtime/check-json-error.mjs
 
 ## 性能实测
 
-在 release 构建（`pnpm tauri build`，LTO 开启）下实测，机器为 96 DPI：
+在 release 构建（`pnpm tauri build`，LTO 开启）下实测，测试环境：96 DPI：
 
 | 指标 | 目标 | 实测 | 结论 |
 |------|------|------|------|
@@ -636,7 +630,7 @@ temporary-recorder      25.9 MB 工作集
 - 新图标在任务栏 / 开始菜单 / 文件资源管理器里的实际观感
 - 输入延迟（< 16ms）的主观体感
 
-## 本机专用配置
+## 本地构建配置（不提交）
 
-`.cargo/config.toml` 配置了 crates.io 镜像（USTC），原因与说明见该文件内注释。
-该文件已加入 `.gitignore`，**不会提交**；换到可直接访问 crates.io 的网络时可删除。
+如果访问 crates.io 较慢，可以在项目根目录放一份 `.cargo/config.toml` 指向一个镜像；
+该文件已加入 `.gitignore`，**不会提交**，换到网络通畅的环境时删掉即可。

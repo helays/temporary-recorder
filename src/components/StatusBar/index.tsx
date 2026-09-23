@@ -17,7 +17,6 @@ export function StatusBar() {
   const largeFile = useStatusStore((state) => state.largeFile);
   const message = useStatusStore((state) => state.message);
   const setMessage = useStatusStore((state) => state.setMessage);
-  const setSettingsOpen = useStatusStore((state) => state.setSettingsOpen);
 
   return (
     <div className="flex h-6 shrink-0 items-center gap-3 border-t border-app-border bg-app-panel px-2 text-[11px] text-app-muted">
@@ -76,14 +75,6 @@ export function StatusBar() {
             ×
           </button>
         )}
-        <button
-          type="button"
-          title="设置 (Ctrl+,)"
-          onClick={() => setSettingsOpen(true)}
-          className="rounded-sm px-1.5 text-app-muted hover:bg-app-hover hover:text-app-fg"
-        >
-          设置
-        </button>
       </div>
     </div>
   );
