@@ -167,6 +167,19 @@ export function detectFormat(source: string): DocFormat {
 }
 
 /**
+ * 依文件扩展名判定格式。
+ * 打开文件时用它把语言立刻装上——比按内容探测更快，
+ * 也避免了「刚打开就按回车却不缩进」。
+ * 认不出的扩展名返回 null，交由内容探测处理。
+ */
+export function formatFromPath(path: string): DocFormat | null {
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".json")) return "json";
+  if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "yaml";
+  return null;
+}
+
+/**
  * 粗略判断内容是否「像 YAML」。
  * 用于内容不合法时也能把 YAML 的语法错误与位置报到状态栏，
  * 而不是笼统地回一句「无法识别格式」。

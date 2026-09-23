@@ -50,6 +50,8 @@ export interface TabContent {
   /** 0 基列偏移 */
   cursorCh: number;
   scrollTop: number;
+  /** 格式提示：打开文件时按扩展名给出，省掉一次内容探测、语言立刻可用 */
+  format?: DocFormat;
 }
 
 export interface CursorInfo {
@@ -232,7 +234,10 @@ class EditorManager {
       initial.cursorCh,
     );
     const large = initial.content.length > LARGE_CONTENT_THRESHOLD;
-    const format: DocFormat = large ? "text" : detectFormat(initial.content);
+    // 优先采用调用方给的格式提示（打开文件时按扩展名判定），否则按内容探测
+    const format: DocFormat = large
+      ? "text"
+      : (initial.format ?? detectFormat(initial.content));
     const state = EditorState.create({
       doc: initial.content,
       selection,

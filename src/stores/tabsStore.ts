@@ -12,6 +12,7 @@ import {
 import { writeActiveTab } from "../services/sessionRepo";
 import { tempFilePath } from "../services/tempFiles";
 import { writeTextFile } from "../services/fileService";
+import { formatFromPath } from "../services/format";
 import { editorManager } from "../extensions/editorManager";
 import { useStatusStore } from "./statusStore";
 
@@ -57,6 +58,8 @@ interface TabsState {
 
   /** 把标签绑定到新的文件（新建、另存为、打开文件都用它） */
   bindTabFile: (id: string, filePath: string | null, isTemp: boolean, diskMtime: number | null) => Promise<void>;
+  /** 打开一个新的文件标签（内容已由调用方读好） */
+  addFileTab: (filePath: string, title: string, content: string, diskMtime: number) => Promise<void>;
   /** 记录文件最新的 mtime（写文件后） */
   setDiskMtime: (id: string, diskMtime: number) => void;
   markConflict: (id: string) => void;
@@ -222,8 +225,40 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     await updateTabFile(id, filePath, isTemp ? 1 : 0, diskMtime);
   },
 
-  setDiskMtime: (id, diskMtime) => {
-    set((state) => ({
+  addFileTab: async (filePath, title, content, diskMtime) => {
+    const id = newId();
+    const now = Date.now();
+    const sortOrder = await nextSortOrder();
+    const record: TabRecord = {
+      id,
+      title,
+      content: "",
+      sort_order: sortOrder,
+      cursor_line: 0,
+      cursor_ch: 0,
+      scroll_top: 0,
+      created_at: now,
+      updated_at: now,
+      file_path: filePath,
+      is_temp: 0,
+      disk_mtime: diskMtime,
+    };
+
+    if (!(await insertTab(record))) return;
+
+    // 内容已经读好了，直接建立编辑器状态，避免再读一次盘
+    editorManager.preload(id, {
+      content,
+      cursorLine: 0,
+      cursorCh: 0,
+      scrollTop: 0,
+      format: formatFromPath(filePath) ?? undefined,
+    });
+    set((state) => ({ tabs: [...state.tabs, toMeta(record)], activeTabId: id }));
+    await writeActiveTab(id);
+  },
+
+  setDiskMtime: (id, diskMtime) => {    set((state) => ({
       tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, disk_mtime: diskMtime } : tab)),
     }));
   },

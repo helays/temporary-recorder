@@ -9,6 +9,11 @@ import { formatActiveTab, minifyActiveTab } from "./services/formatActions";
 import { materializeLegacyContent } from "./services/legacyMigration";
 import { saveTabContent } from "./services/contentStore";
 import {
+  openFileIntoNewTab,
+  saveActiveTab,
+  saveActiveTabAs,
+} from "./services/fileActions";
+import {
   captureWindowGeometry,
   loadTabForEditor,
   restoreSession,
@@ -74,8 +79,14 @@ editorManager.configure({
     minify: () => {
       minifyActiveTab();
     },
-    flush: () => {
-      editorManager.flushAll();
+    openFile: () => {
+      void openFileIntoNewTab();
+    },
+    save: () => {
+      void saveActiveTab();
+    },
+    saveAs: () => {
+      void saveActiveTabAs();
     },
   },
 });

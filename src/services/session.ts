@@ -7,6 +7,7 @@ import {
 import { getTabContent, listTabMeta, updateTabDiskMtime } from "./tabsRepo";
 import { readSession, writeWindowGeometry } from "./sessionRepo";
 import { readTextFile } from "./fileService";
+import { formatFromPath } from "./format";
 import { normalizeNewlines } from "../utils/text";
 import { debounce } from "../utils/debounce";
 import { useStatusStore } from "../stores/statusStore";
@@ -82,6 +83,8 @@ export async function loadTabForEditor(
     cursorLine: meta.cursor_line,
     cursorCh: meta.cursor_ch,
     scrollTop: meta.scroll_top,
+    // 打开的文件按扩展名立刻确定语言，换行缩进随即生效
+    format: meta.file_path === null ? undefined : (formatFromPath(meta.file_path) ?? undefined),
   };
 }
 

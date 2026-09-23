@@ -12,8 +12,12 @@ export interface AppKeymapHandlers {
   switchToIndex: (index: number) => void;
   format: () => void;
   minify: () => void;
-  /** 立即落库（Ctrl+S） */
-  flush: () => void;
+  /** 打开文件（Ctrl+O） */
+  openFile: () => void;
+  /** 保存当前标签（Ctrl+S）；临时标签会转为「另存为」 */
+  save: () => void;
+  /** 另存为（Ctrl+Shift+S） */
+  saveAs: () => void;
 }
 
 /**
@@ -34,7 +38,9 @@ export function appKeymap(handlers: AppKeymapHandlers): Extension {
       // 所以不会被 WebView2 抢走（Ctrl+F/Ctrl+P/Ctrl+R 才会，见 lib.rs 的处理）。
       { key: "Mod-n", run: run(handlers.newTab), preventDefault: true },
       { key: "Mod-w", run: run(handlers.closeTab), preventDefault: true },
-      { key: "Mod-s", run: run(handlers.flush), preventDefault: true },
+      { key: "Mod-s", run: run(handlers.save), preventDefault: true },
+      { key: "Mod-o", run: run(handlers.openFile), preventDefault: true },
+      { key: "Mod-Shift-s", run: run(handlers.saveAs), preventDefault: true },
       // Ctrl+H 打开替换：CodeMirror 的搜索面板本身包含替换输入框
       { key: "Mod-h", run: openSearchPanel, preventDefault: true },
       { key: "Mod-Tab", run: run(handlers.nextTab), preventDefault: true },
