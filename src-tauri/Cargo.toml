@@ -2,6 +2,7 @@
 name = "temporary-recorder"
 version = "0.1.0"
 description = "闪记 —— 轻量级临时记录器"
+license = "MIT"
 authors = ["helay"]
 edition = "2021"
 

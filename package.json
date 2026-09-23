@@ -2,6 +2,9 @@
   "name": "temporary-recorder",
   "private": true,
   "version": "0.1.0",
+  "description": "闪记 —— 轻量级 Windows 临时记录器：多标签、自动保存、JSON/YAML 格式化",
+  "license": "MIT",
+  "author": "helay",
   "type": "module",
   "scripts": {
     "dev": "vite",

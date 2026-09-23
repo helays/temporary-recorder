@@ -1,5 +1,13 @@
 # 闪记
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D4?style=flat-square)
+![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust-stable-000000?style=flat-square&logo=rust&logoColor=white)
+![React 19](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=white)
+![TypeScript 6](https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![CodeMirror 6](https://img.shields.io/badge/CodeMirror-6-B483F3?style=flat-square&logo=codemirror&logoColor=white)
+
 > 仓库目录名与 Cargo 包名仍是 `Temporary-recorder` / `temporary-recorder`（见下方
 > 「关于名称」）。用户可见的产品名是**闪记**。
 
@@ -634,3 +642,7 @@ temporary-recorder      25.9 MB 工作集
 
 如果访问 crates.io 较慢，可以在项目根目录放一份 `.cargo/config.toml` 指向一个镜像；
 该文件已加入 `.gitignore`，**不会提交**，换到网络通畅的环境时删掉即可。
+
+## 许可证
+
+[MIT](LICENSE) © 2026 helay
