@@ -121,6 +121,14 @@ pnpm tauri build      # 打包 release 安装包
 8 种语言的真实语法树按缩进打印成文本（`runtime/probe-defs*.txt`），规则表照着写。
 只做同文件查找，不解析 `import`，也不做跨文件索引。
 
+补 JSX/TSX 用例时正是靠这套断言发现漏了一类节点：组件标签 `<Item />` 的 `Item` 是
+`JSXIdentifier`（内置标签是 `JSXBuiltin > JSXIdentifier`），不在最初那份标识符名单里，
+于是「点组件名跳过去」这个最常用的动作静默失效。规则表补上之后，
+`check-jump.mjs` 里 jsx / tsx 两组用例（组件标签、JSX 属性值、解构参数、类型注解）全绿。
+
+超过 5 MB 的文档会被降级、不装语言，此时按定义查不到任何东西（`empty`）——
+这是刻意的：降级的前提就是不再为它建语法树。
+
 `Ctrl+Click` 在 Windows 上本来是 CodeMirror 的「加光标」，所以跳转要显式把
 `EditorView.clickAddsSelectionRange` 改成 `Alt`（多光标随之变成 `Alt+Click`，
 矩形选择用的 `Alt+拖动` 不受影响）。
@@ -200,6 +208,10 @@ pnpm tauri build      # 打包 release 安装包
 | `measure-lang-memory.mjs` | 语法包与语法树的堆占用（`--expose-gc` + 保留 N 份文档再除以 N） |
 | `measure-langs.ps1` / `measure-langs.mjs` | 四种内容各跑一遍，量应用与 WebView2 的内存、编辑器配色数、状态栏语言胶囊宽度；`.mjs` 负责备份 / 还原数据库与种入单标签会话 |
 | `check-highlight.ps1` | 数编辑器里**精确命中** `defaultHighlightStyle` 各 token 颜色的像素数：纯文本应为 0，Python / C++ 应 > 0 |
+
+> A/B 构建用 `git worktree add runtime/baseline HEAD` 检出上一个提交来对比产物：
+> 注意**不要**把它的 `node_modules` 用 junction 指回工作区，清理时 `rmdir /s` 会删穿
+> junction 把真 `node_modules` 删掉（见 [PITFALLS.md 第 23 条](PITFALLS.md)）。
 | `check-json-error.mjs` | JSON 错误定位与 V8 报错交叉验证 |
 | `check-libs.mjs` | js-yaml v5 的 `loadAll` / `dump` 行为核对 |
 | `check-perms.mjs` | 列出 `core:window:default` 实际授予的权限 |
@@ -240,8 +252,13 @@ node --expose-gc --import ./runtime/ts-resolve.mjs runtime/measure-lang-memory.m
 `measure-langs.ps1` 会**改写数据库**（种入单标签会话）来做对照，跑完记得：
 
 ```powershell
-node runtime/measure-langs.mjs restore   # 还原实验前的 recorder.db
+node runtime/measure-langs.mjs check     # 先看一眼现状（不改任何东西）
+node runtime/measure-langs.mjs restore   # 还原实验前的快照（VACUUM INTO 导出）
 ```
+
+它已经带了两道保护：**应用在运行时会拒绝改写**（加 `--force` 才继续），
+备份走 `VACUUM INTO` 单文件快照而不是复制 `db/-wal/-shm`（见
+[PITFALLS.md 第 24 条](PITFALLS.md)）。
 
 后两个脚本要用 `--import ./runtime/ts-resolve.mjs`：node 24 能直接执行 `.ts`（类型擦除），
 但源码里的相对导入是 bundler 风格的无扩展名写法，ESM 解析不了，那个钩子负责补 `.ts`。
@@ -292,7 +309,7 @@ CodeMirror 与 React 都常驻内存但占比很小。
 
 | 产物 | 之前 | 现在 |
 |---|---|---|
-| 首屏 JS | 769.77 KB | **768.61 KB** |
+| 首屏 JS | 769.77 KB | **768.59 KB** |
 | 首屏 JS（gzip） | 244.41 KB | **242.67 KB** |
 | 语言 chunk | — | 22 个，合计约 600 KB（按需） |
 
@@ -377,9 +394,10 @@ WebView2 渲染进程的读数在 100–107 MB 之间来回摆（六进程私有
   与 8 条内容嗅探；`text` 返回空扩展、同一语言只加载一次（返回同一扩展对象）
 - **跳转规则**（`runtime/check-jump.mjs`）：9 套规则共 60+ 条断言，全部按真实语法树跑
   （引用→定义、`self` / `missing` / `empty` / `unsupported` 四种结论、Python `for ... in`
-  的分隔符规则、Rust `impl` 里的类型名只算引用）；1500 行 Python 实测
-  解析 20ms / 首次建索引 3ms / 缓存后 0.01ms（索引按 `Tree` 对象缓存，文档一变自动失效）
-- **首屏 JS 没有变大**（A/B 构建，见「性能实测」）：769.77 KB → 768.61 KB
+  的分隔符规则、Rust `impl` 里的类型名只算引用、JSX/TSX 的组件标签与解构参数）；
+  1500 行 Python 实测解析 20ms / 首次建索引 3ms / 缓存后 0.01ms
+  （索引按 `Tree` 对象缓存，文档一变自动失效）
+- **首屏 JS 没有变大**（A/B 构建，见「性能实测」）：769.77 KB → 768.59 KB
 - **高亮是真的画出来了**（`runtime/check-highlight.ps1`，数精确颜色像素）：
   纯文本负载命中 token 颜色 **0** 个像素；Python 负载 234 个
   （keyword `#770088` 101、definition `#0000ff` 105、propertyName `#116677` 24、number `#116644` 4）；

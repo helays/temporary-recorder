@@ -258,10 +258,10 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     await writeActiveTab(id);
   },
 
-  setDiskMtime: (id, diskMtime) => {    set((state) => ({
+  setDiskMtime: (id, diskMtime) =>
+    set((state) => ({
       tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, disk_mtime: diskMtime } : tab)),
-    }));
-  },
+    })),
 
   markConflict: (id) => set((state) => ({ conflicts: { ...state.conflicts, [id]: true } })),
 

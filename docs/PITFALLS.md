@@ -291,3 +291,48 @@ type TreeNode = SyntaxTree["topNode"];
 ```
 
 不新增依赖，也不影响运行时（`Tree` 本来就来自 CodeMirror）。
+
+## 23. `rmdir /s` 会穿透 junction 删掉真实目标
+
+做 A/B 构建时用 `git worktree add runtime/baseline` 建了一份旧提交的检出，并把
+`runtime/baseline/node_modules` 做成指向项目 `node_modules` 的 **junction**。
+清理时用 `cmd /c "rmdir /s /q runtime\baseline"` —— 结果**删穿了 junction**，
+把项目真正的 `node_modules` 删掉了一部分（`node_modules/.bin` 被清空，
+`pnpm type-check` 直接报 `'tsc' is not recognized`）。
+
+三个要点：
+
+- Windows 上 `rmdir /s` / `Remove-Item -Recurse` 会**跟随目录 junction**；
+  `del`/`rmdir`（不带 `/s`）对 junction 本身只删链接，安全得多。
+- 恢复成本很低但**不要用 `pnpm install`**：`.modules.yaml` 记着"已装"，
+  它只会补几个包，缺的链接照旧缺（实测 `Packages: +4` 就结束了，type-check 依旧失败）。
+  正确做法是 `pnpm install --force`（重新解析并重建全部链接，从本地 store 走，6 秒）。
+- `git worktree remove` 在这些文件存在时也会失败（"Directory not empty"），
+  先手动清空目录再 `git worktree prune`。
+
+教训：临时检出**不要**把 `node_modules` 以 junction 指回工作区；要么在 worktree 里
+单独装一次，要么清理由 `git worktree remove --force` 完成。
+
+## 24. WAL 数据库不能按文件复制备份；也不要在用户正用着应用时做种子实验
+
+做语言内存对照需要往 `tabs` 表种数据，做法是先备份 `recorder.db`。第一版备份是
+**直接复制 `recorder.db` + `-wal` + `-shm` 三个文件**，恢复时再一起复制回去——看起来
+万无一失，实际上恢复出来的库**少了一行标签**：主文件与 WAL 是两套状态，
+三个文件分别复制得到的快照不保证能拼回同一个时刻（`-shm` 里还有一份索引）。
+
+正确做法是用 SQLite 自己导出一份干净快照，不碰原库：
+
+```js
+db.exec(`VACUUM INTO '${snapshotPath}'`);   // 单文件、无 WAL、一致
+```
+
+恢复时同时删掉旧的 `-wal` / `-shm`（只换主文件会把旧 WAL 嫁接到新库上）。
+
+还有一条更重要的教训：这些脚本会**改写用户真实的标签表**，而用户可能正开着应用在记东西。
+本轮就赶上了：用户在实验期间往一个标签里粘了一大段 Go 代码（自动保存写进临时文件），
+而恢复备份把那一行顶掉了 —— 文件还在，但已变成"无人引用的孤儿"，
+用「清理未引用的临时文件」就会把它删掉。
+
+所以 `measure-langs.mjs` 现在有两道保护：改写前先 `tasklist` 查一遍
+`temporary-recorder.exe`，在跑就拒绝执行（要强行执行得显式加 `--force`）；
+`check` 子命令则用来在不改动任何东西的前提下看一眼现状（应用是否在跑、有几个标签、哪个是激活的）。

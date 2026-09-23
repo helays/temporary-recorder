@@ -61,6 +61,8 @@ const JAVASCRIPT: JumpRule = {
     "PropertyDefinition",
     "PrivatePropertyDefinition",
     "TypeDefinition",
+    // JSX/TSX 里的组件标签：<Item /> 的 Item 是 JSXIdentifier（内置标签会被包进 JSXBuiltin）
+    "JSXIdentifier",
   ],
   declarationNames: ["VariableDefinition", "PropertyDefinition", "PrivatePropertyDefinition", "TypeDefinition"],
   // TS 枚举成员：EnumBody 下的 PropertyName 是定义，别处的 PropertyName（成员访问）是引用

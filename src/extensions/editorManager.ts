@@ -106,10 +106,15 @@ interface TabEntry {
   detectLanguage: Debounced<[]>;
   /** 是否因体积过大而关闭了语法高亮 */
   degraded: boolean;
-  /** 当前语言 */
+  /** 当前语言（大文件降级期间是 text） */
   language: LanguageId;
-  /** 语言是否来自文件名。来自文件名时永不按内容复探，避免 .py 被改判成 YAML */
-  languageFromPath: boolean;
+  /**
+   * 由文件名决定的语言；临时标签为 null（只能按内容嗅探）。
+   * 非 null 时永不按内容复探，避免 .py 被改判成 YAML；
+   * 大文件从降级恢复时也靠它把原语言装回来 —— 降级期间 language 已被改成 text，
+   * 只看 language 会把 5 MB 以上的 .json 永久留在纯文本。
+   */
+  preferred: LanguageId | null;
 }
 
 /**
@@ -276,11 +281,9 @@ class EditorManager {
       initial.cursorCh,
     );
     const large = initial.content.length > LARGE_CONTENT_THRESHOLD;
-    const languageFromPath = initial.languageId !== undefined;
-    // 优先采用调用方给的语言（打开文件时按文件名判定），否则按内容嗅探
-    const language: LanguageId = large
-      ? "text"
-      : (initial.languageId ?? sniffLanguageId(initial.content));
+    // 调用方给了语言（打开文件时按文件名判定）就以此为准，否则按内容嗅探
+    const preferred = initial.languageId ?? null;
+    const language: LanguageId = large ? "text" : (preferred ?? sniffLanguageId(initial.content));
     const support = large ? [] : await loadLanguageSafely(language);
 
     const state = EditorState.create({
@@ -293,7 +296,7 @@ class EditorManager {
       state,
       degraded: large,
       language,
-      languageFromPath,
+      preferred,
       saveContent: debounce(() => {
         const current = this.entries.get(tabId)?.state;
         if (current === undefined) return;
@@ -419,10 +422,9 @@ class EditorManager {
         }, 0);
       } else {
         // 回到阈值以内：文档已小于 5MB，可以重新确定语言并装回高亮。
-        // 语言来自文件名时不必复探，直接用回原语言。
-        const language = entry.languageFromPath
-          ? entry.language
-          : sniffLanguageId(entry.state.doc.toString());
+        // 文件名定过的语言要装回**原来那个**（降级期间 language 已被置为 text），
+        // 临时标签才按内容复探。
+        const language = entry.preferred ?? sniffLanguageId(entry.state.doc.toString());
         void this.applyLanguage(tabId, language);
       }
     }
@@ -437,7 +439,7 @@ class EditorManager {
    */
   private scheduleLanguageRefresh(tabId: string, state: EditorState): void {
     const entry = this.entries.get(tabId);
-    if (entry === undefined || entry.languageFromPath) return;
+    if (entry === undefined || entry.preferred !== null) return;
     if (entry.language === "text" && state.doc.length <= IMMEDIATE_DETECT_MAX) {
       const head = state.doc.sliceString(0, 64).trimStart().charAt(0);
       if (head === "{" || head === "[") {
@@ -454,7 +456,7 @@ class EditorManager {
    */
   private refreshLanguage(tabId: string, content: string): void {
     const entry = this.entries.get(tabId);
-    if (entry === undefined || entry.degraded || entry.languageFromPath) return;
+    if (entry === undefined || entry.degraded || entry.preferred !== null) return;
     const language = sniffLanguageId(content);
     if (language === entry.language) return;
     void this.applyLanguage(tabId, language);
@@ -463,6 +465,10 @@ class EditorManager {
   /**
    * 装载语言并热替换语法高亮。
    * 语法包是异步加载的，加载期间标签可能已被关闭或重建，所以每步都重新取表。
+   *
+   * dispatch 发生在 await 之后（微任务），而 CodeMirror 禁止的只是「在一次 update
+   * 尚未结束时就再 dispatch」——那是同步重入，微任务一定在整条同步调用栈退干净之后才跑，
+   * 所以这里不需要再套一层 setTimeout。
    */
   private async applyLanguage(tabId: string, language: LanguageId): Promise<void> {
     const entry = this.entries.get(tabId);
