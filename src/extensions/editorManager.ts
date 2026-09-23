@@ -16,7 +16,7 @@ import {
   lineNumbers,
   rectangularSelection,
 } from "@codemirror/view";
-import { bracketMatching, indentOnInput } from "@codemirror/language";
+import { bracketMatching, indentOnInput, indentUnit } from "@codemirror/language";
 import { closeBrackets } from "@codemirror/autocomplete";
 import { history } from "@codemirror/commands";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
@@ -28,11 +28,19 @@ import { LARGE_CONTENT_THRESHOLD } from "../utils/text";
 import { debounce, type Debounced } from "../utils/debounce";
 import { appKeymap, type AppKeymapHandlers } from "./keymap";
 import { editorThemeExtension } from "./theme";
+import { yamlIndentFallback } from "./yamlIndent";
 
 /** 用户停止输入 800ms 后把当前标签内容落库 */
 export const CONTENT_SAVE_DELAY = 800;
 /** 光标 / 滚动位置 1 秒防抖落库 */
 export const CARET_SAVE_DELAY = 1000;
+/**
+ * 格式探测防抖。刻意比落库（800ms）短：
+ * 语言一旦装载，换行缩进才生效，所以要尽早识别出 JSON / YAML。
+ */
+export const FORMAT_DETECT_DELAY = 250;
+/** 内容不超过此长度且以 { 或 [ 开头时立刻按 JSON 处理（覆盖「敲 { 后马上回车」） */
+const IMMEDIATE_DETECT_MAX = 4096;
 
 /** 从数据库载入某标签所需的初始状态 */
 export interface TabContent {
@@ -75,6 +83,8 @@ interface TabEntry {
   state: EditorState;
   saveContent: Debounced<[]>;
   saveCaret: Debounced<[]>;
+  /** 独立的格式探测防抖器（比落库更早触发） */
+  detectFormat: Debounced<[]>;
   /** 是否因体积过大而关闭了语法高亮 */
   degraded: boolean;
   /** 当前探测到的内容格式 */
@@ -174,6 +184,8 @@ class EditorManager {
       drawSelection(),
       dropCursor(),
       EditorState.allowMultipleSelections.of(true),
+      // 显式固定为 2 空格：JSON / YAML 的换行缩进都按它走
+      indentUnit.of("  "),
       indentOnInput(),
       bracketMatching(),
       closeBrackets(),
@@ -195,6 +207,7 @@ class EditorManager {
         if (update.docChanged) {
           this.entries.get(tabId)?.saveContent();
           this.updateLargeFileState(tabId, update.state.doc.length);
+          this.scheduleFormatRefresh(tabId, update.state);
         }
         if (update.selectionSet || update.docChanged) {
           this.reportCursor(tabId, update.state);
@@ -237,10 +250,13 @@ class EditorManager {
       saveContent: debounce(() => {
         const current = this.entries.get(tabId)?.state;
         if (current === undefined) return;
-        const content = current.doc.toString();
-        hooks.saveContent(tabId, content);
-        this.refreshFormat(tabId, content);
+        hooks.saveContent(tabId, current.doc.toString());
       }, CONTENT_SAVE_DELAY),
+      detectFormat: debounce(() => {
+        const current = this.entries.get(tabId)?.state;
+        if (current === undefined) return;
+        this.refreshFormat(tabId, current.doc.toString());
+      }, FORMAT_DETECT_DELAY),
       saveCaret: debounce(() => {
         const current = this.entries.get(tabId)?.state;
         if (current === undefined) return;
@@ -355,15 +371,36 @@ class EditorManager {
       case "json":
         return json();
       case "yaml":
-        return yaml();
+        // 附带一条缩进兜底：lang-yaml 的缩进依赖已成的块结构，
+        // 从零写 YAML 时按回车不会缩进，见 yamlIndent.ts
+        return [yaml(), yamlIndentFallback];
       default:
         return [];
     }
   }
 
   /**
+   * 决定何时重新探测格式。
+   * 常规情况交给 250ms 防抖；但「尚未识别出格式 + 内容很小 + 以 { 或 [ 开头」
+   * 立刻判定为 JSON —— 这正是「敲一个 { 紧接着按回车」的常见起手，
+   * 若等防抖，那一次回车就不会缩进。
+   */
+  private scheduleFormatRefresh(tabId: string, state: EditorState): void {
+    const entry = this.entries.get(tabId);
+    if (entry === undefined) return;
+    if (entry.format === "text" && state.doc.length <= IMMEDIATE_DETECT_MAX) {
+      const head = state.doc.sliceString(0, 64).trimStart().charAt(0);
+      if (head === "{" || head === "[") {
+        this.refreshFormat(tabId, state.doc.toString());
+        return;
+      }
+    }
+    entry.detectFormat();
+  }
+
+  /**
    * 重新探测格式并热更新语法高亮。
-   * 在内容防抖落库时调用——此时已脱离 CodeMirror 的 update，可以直接 dispatch。
+   * 由防抖器或上面的即时判定调用——都不在 CodeMirror 的 update 过程中，可以直接 dispatch。
    */
   private refreshFormat(tabId: string, content: string): void {
     const entry = this.entries.get(tabId);
@@ -422,6 +459,7 @@ class EditorManager {
     const entry = this.entries.get(tabId);
     entry?.saveContent.cancel();
     entry?.saveCaret.cancel();
+    entry?.detectFormat.cancel();
     this.entries.delete(tabId);
     this.scrollTops.delete(tabId);
     if (this.activeTabId === tabId) this.activeTabId = null;
