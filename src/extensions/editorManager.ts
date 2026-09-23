@@ -27,25 +27,23 @@ import {
   search,
   searchKeymap,
 } from "@codemirror/search";
-import { json } from "@codemirror/lang-json";
-import { yaml } from "@codemirror/lang-yaml";
-import { detectFormat } from "../services/format";
-import type { DocFormat, ResolvedTheme } from "../types/models";
+import { loadLanguageExtension, sniffLanguageId } from "../services/languages";
+import type { LanguageId, ResolvedTheme } from "../types/models";
 import { LARGE_CONTENT_THRESHOLD } from "../utils/text";
 import { debounce, type Debounced } from "../utils/debounce";
+import { jumpExtension, type JumpMessageKind } from "./jump";
 import { appKeymap, type AppKeymapHandlers } from "./keymap";
 import { editorThemeExtension } from "./theme";
-import { yamlIndentFallback } from "./yamlIndent";
 
 /** 用户停止输入 800ms 后把当前标签内容落库 */
 export const CONTENT_SAVE_DELAY = 800;
 /** 光标 / 滚动位置 1 秒防抖落库 */
 export const CARET_SAVE_DELAY = 1000;
 /**
- * 格式探测防抖。刻意比落库（800ms）短：
+ * 语言探测防抖。刻意比落库（800ms）短：
  * 语言一旦装载，换行缩进才生效，所以要尽早识别出 JSON / YAML。
  */
-export const FORMAT_DETECT_DELAY = 250;
+export const LANGUAGE_DETECT_DELAY = 250;
 /** 内容不超过此长度且以 { 或 [ 开头时立刻按 JSON 处理（覆盖「敲 { 后马上回车」） */
 const IMMEDIATE_DETECT_MAX = 4096;
 
@@ -63,8 +61,12 @@ export interface TabContent {
   /** 0 基列偏移 */
   cursorCh: number;
   scrollTop: number;
-  /** 格式提示：打开文件时按扩展名给出，省掉一次内容探测、语言立刻可用 */
-  format?: DocFormat;
+  /**
+   * 语言提示。给了就以此为准、不再按内容嗅探——
+   * 打开文件时按文件名判定（.py 不该被内容嗅探成 YAML），
+   * 也因此省掉一次内容探测、语言在首次渲染时就已就绪。
+   */
+  languageId?: LanguageId;
 }
 
 export interface CursorInfo {
@@ -88,8 +90,10 @@ export interface EditorManagerHooks {
   ) => void;
   onCursor: (info: CursorInfo) => void;
   onLargeFile: (tabId: string, large: boolean) => void;
-  /** 内容格式（JSON / YAML / 纯文本）发生变化时上报 */
-  onFormat: (tabId: string, format: DocFormat) => void;
+  /** 内容语言发生变化时上报（决定状态栏显示哪种语言） */
+  onLanguage: (tabId: string, language: LanguageId) => void;
+  /** 一次性提示（跳转成功 / 失败等），显示在状态栏 */
+  onStatusMessage: (kind: JumpMessageKind, text: string) => void;
   keymapHandlers: AppKeymapHandlers;
 }
 
@@ -98,12 +102,26 @@ interface TabEntry {
   state: EditorState;
   saveContent: Debounced<[]>;
   saveCaret: Debounced<[]>;
-  /** 独立的格式探测防抖器（比落库更早触发） */
-  detectFormat: Debounced<[]>;
+  /** 独立的语言探测防抖器（比落库更早触发） */
+  detectLanguage: Debounced<[]>;
   /** 是否因体积过大而关闭了语法高亮 */
   degraded: boolean;
-  /** 当前探测到的内容格式 */
-  format: DocFormat;
+  /** 当前语言 */
+  language: LanguageId;
+  /** 语言是否来自文件名。来自文件名时永不按内容复探，避免 .py 被改判成 YAML */
+  languageFromPath: boolean;
+}
+
+/**
+ * 取语言扩展。语法包加载失败（安装包缺文件等）时降级为纯文本，
+ * 不让一次加载失败毁掉整个标签。
+ */
+async function loadLanguageSafely(id: LanguageId): Promise<Extension> {
+  try {
+    return await loadLanguageExtension(id);
+  } catch {
+    return [];
+  }
 }
 
 /** 依据 0 基行/列还原光标；行列越界时返回 undefined 回退到文档开头 */
@@ -127,6 +145,8 @@ class EditorManager {
   private view: EditorView | null = null;
   private hooks: EditorManagerHooks | null = null;
   private entries = new Map<string, TabEntry>();
+  /** 正在建立 EditorState 的标签：异步建立期间合并重复请求，避免建出两份状态 */
+  private inflight = new Map<string, Promise<TabEntry | null>>();
   private scrollTops = new Map<string, number>();
   private activeTabId: string | null = null;
   private languageCompartment = new Compartment();
@@ -216,6 +236,11 @@ class EditorManager {
       this.themeCompartment.of(editorThemeExtension(this.theme)),
       appKeymap(hooks.keymapHandlers),
       keymap.of(searchKeymap),
+      // 跳转用当前激活标签的语言（语言是动态加载的，拿不到固定值，只能现取）
+      jumpExtension(
+        () => this.activeLanguage(),
+        (kind, text) => hooks.onStatusMessage(kind, text),
+      ),
       EditorView.updateListener.of((update) => {
         const entry = this.entries.get(tabId);
         if (entry !== undefined) entry.state = update.state;
@@ -223,7 +248,7 @@ class EditorManager {
         if (update.docChanged) {
           this.entries.get(tabId)?.saveContent();
           this.updateLargeFileState(tabId, update.state.doc.length);
-          this.scheduleFormatRefresh(tabId, update.state);
+          this.scheduleLanguageRefresh(tabId, update.state);
         }
         if (update.selectionSet || update.docChanged) {
           this.reportCursor(tabId, update.state);
@@ -237,8 +262,11 @@ class EditorManager {
    * 建立某标签的 EditorState 与防抖器。
    * 防抖回调只捕获 tabId，落库时再从 entries 里读该标签的最新内容——
    * 这样即使用户在防抖窗口内切走标签，也不会把别的标签内容写进来。
+   *
+   * 语言扩展先加载完再建 EditorState：语法包是异步取的，
+   * 若先建状态再热替换，会看到一次「先无高亮后有色」的闪烁。
    */
-  private createEntry(tabId: string, initial: TabContent): TabEntry {
+  private async createEntry(tabId: string, initial: TabContent): Promise<TabEntry> {
     const hooks = this.hooks;
     if (hooks === null) throw new Error("editorManager 未调用 configure()");
 
@@ -248,34 +276,34 @@ class EditorManager {
       initial.cursorCh,
     );
     const large = initial.content.length > LARGE_CONTENT_THRESHOLD;
-    // 优先采用调用方给的格式提示（打开文件时按扩展名判定），否则按内容探测
-    const format: DocFormat = large
+    const languageFromPath = initial.languageId !== undefined;
+    // 优先采用调用方给的语言（打开文件时按文件名判定），否则按内容嗅探
+    const language: LanguageId = large
       ? "text"
-      : (initial.format ?? detectFormat(initial.content));
+      : (initial.languageId ?? sniffLanguageId(initial.content));
+    const support = large ? [] : await loadLanguageSafely(language);
+
     const state = EditorState.create({
       doc: initial.content,
       selection,
-      extensions: this.buildExtensions(
-        tabId,
-        hooks,
-        large ? [] : this.languageExtensionFor(format),
-      ),
+      extensions: this.buildExtensions(tabId, hooks, support),
     });
 
     const entry: TabEntry = {
       state,
       degraded: large,
-      format,
+      language,
+      languageFromPath,
       saveContent: debounce(() => {
         const current = this.entries.get(tabId)?.state;
         if (current === undefined) return;
         hooks.saveContent(tabId, current.doc.toString());
       }, CONTENT_SAVE_DELAY),
-      detectFormat: debounce(() => {
+      detectLanguage: debounce(() => {
         const current = this.entries.get(tabId)?.state;
         if (current === undefined) return;
-        this.refreshFormat(tabId, current.doc.toString());
-      }, FORMAT_DETECT_DELAY),
+        this.refreshLanguage(tabId, current.doc.toString());
+      }, LANGUAGE_DETECT_DELAY),
       saveCaret: debounce(() => {
         const current = this.entries.get(tabId)?.state;
         if (current === undefined) return;
@@ -296,23 +324,39 @@ class EditorManager {
   }
 
   /** 用已知内容直接建立状态，省掉一次数据库往返（新建标签时用） */
-  preload(tabId: string, initial: TabContent): void {
-    if (this.entries.has(tabId)) return;
-    this.createEntry(tabId, initial);
+  preload(tabId: string, initial: TabContent): Promise<void> {
+    return this.ensureEntry(tabId, initial).then(() => undefined);
   }
 
-  private async ensureEntry(tabId: string): Promise<TabEntry | null> {
+  /**
+   * 确保某标签的 EditorState 已建立，返回它。
+   * 建立过程是异步的（可能读盘、可能动态导入语法包），所以用 inflight 表把
+   * 「preload 与 activate 同时到达」合并成同一次建立，避免建出两份状态。
+   */
+  private ensureEntry(tabId: string, initial?: TabContent): Promise<TabEntry | null> {
     const existing = this.entries.get(tabId);
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) return Promise.resolve(existing);
+    const running = this.inflight.get(tabId);
+    if (running !== undefined) return running;
+
+    const task = this.buildEntry(tabId, initial);
+    this.inflight.set(tabId, task);
+    return task.finally(() => {
+      this.inflight.delete(tabId);
+    });
+  }
+
+  private async buildEntry(tabId: string, initial?: TabContent): Promise<TabEntry | null> {
     const hooks = this.hooks;
     if (hooks === null) return null;
 
-    const loaded = await hooks.loadTab(tabId);
-    // 读取期间可能已被别的路径建立，先复查
+    const source = initial ?? (await hooks.loadTab(tabId));
+    if (source === null) return null;
+
+    // 读取 / 加载期间可能已被别的路径建立，先复查
     const raced = this.entries.get(tabId);
     if (raced !== undefined) return raced;
-    if (loaded === null) return null;
-    return this.createEntry(tabId, loaded);
+    return this.createEntry(tabId, source);
   }
 
   /** 激活标签：复用同一个 EditorView，仅 setState */
@@ -353,10 +397,10 @@ class EditorManager {
     view.focus();
     this.reportCursor(tabId, entry.state);
     this.hooks?.onLargeFile(tabId, entry.degraded);
-    this.hooks?.onFormat(tabId, entry.format);
+    this.hooks?.onLanguage(tabId, entry.language);
   }
 
-  /** 大文件降级：超过阈值时卸载语法高亮，避免输入延迟 */
+  /** 大文件降级：超过阈值时卸载语法高亮，避免输入延迟；回到阈值以内再装回来 */
   private updateLargeFileState(tabId: string, docLength: number): void {
     const entry = this.entries.get(tabId);
     if (entry === undefined) return;
@@ -364,77 +408,77 @@ class EditorManager {
     if (large === entry.degraded) return;
     entry.degraded = large;
 
-    const view = this.view;
-    if (tabId === this.activeTabId && view !== null) {
-      // 只有回到阈值以内时才需要重新探测格式（此时文档已小于 5MB，取样可接受）
-      const format = large ? entry.format : detectFormat(entry.state.doc.toString());
-      if (!large) entry.format = format;
-      // CodeMirror 不允许在一次 update 进行中再次 dispatch，
-      // 因此把重新配置推迟到本次更新结束之后。
-      setTimeout(() => {
-        if (this.view !== view || this.activeTabId !== tabId) return;
-        view.dispatch({
-          effects: this.languageCompartment.reconfigure(
-            large ? [] : this.languageExtensionFor(format),
-          ),
-        });
-      }, 0);
-      if (!large) this.hooks?.onFormat(tabId, format);
+    if (tabId === this.activeTabId && this.view !== null) {
+      if (large) {
+        // CodeMirror 不允许在一次 update 进行中再次 dispatch，
+        // 因此把重新配置推迟到本次更新结束之后。
+        const view = this.view;
+        setTimeout(() => {
+          if (this.view !== view || this.activeTabId !== tabId) return;
+          view.dispatch({ effects: this.languageCompartment.reconfigure([]) });
+        }, 0);
+      } else {
+        // 回到阈值以内：文档已小于 5MB，可以重新确定语言并装回高亮。
+        // 语言来自文件名时不必复探，直接用回原语言。
+        const language = entry.languageFromPath
+          ? entry.language
+          : sniffLanguageId(entry.state.doc.toString());
+        void this.applyLanguage(tabId, language);
+      }
     }
     this.hooks?.onLargeFile(tabId, large);
   }
 
-  /** 依格式挑选语言扩展；纯文本返回空数组 */
-  private languageExtensionFor(format: DocFormat): Extension {
-    switch (format) {
-      case "json":
-        return json();
-      case "yaml":
-        // 附带一条缩进兜底：lang-yaml 的缩进依赖已成的块结构，
-        // 从零写 YAML 时按回车不会缩进，见 yamlIndent.ts
-        return [yaml(), yamlIndentFallback];
-      default:
-        return [];
-    }
-  }
-
   /**
-   * 决定何时重新探测格式。
-   * 常规情况交给 250ms 防抖；但「尚未识别出格式 + 内容很小 + 以 { 或 [ 开头」
+   * 决定何时重新探测语言。
+   * 常规情况交给 250ms 防抖；但「尚未识别出语言 + 内容很小 + 以 { 或 [ 开头」
    * 立刻判定为 JSON —— 这正是「敲一个 { 紧接着按回车」的常见起手，
    * 若等防抖，那一次回车就不会缩进。
    */
-  private scheduleFormatRefresh(tabId: string, state: EditorState): void {
+  private scheduleLanguageRefresh(tabId: string, state: EditorState): void {
     const entry = this.entries.get(tabId);
-    if (entry === undefined) return;
-    if (entry.format === "text" && state.doc.length <= IMMEDIATE_DETECT_MAX) {
+    if (entry === undefined || entry.languageFromPath) return;
+    if (entry.language === "text" && state.doc.length <= IMMEDIATE_DETECT_MAX) {
       const head = state.doc.sliceString(0, 64).trimStart().charAt(0);
       if (head === "{" || head === "[") {
-        this.refreshFormat(tabId, state.doc.toString());
+        this.refreshLanguage(tabId, state.doc.toString());
         return;
       }
     }
-    entry.detectFormat();
+    entry.detectLanguage();
   }
 
   /**
-   * 重新探测格式并热更新语法高亮。
-   * 由防抖器或上面的即时判定调用——都不在 CodeMirror 的 update 过程中，可以直接 dispatch。
+   * 按内容复探语言并热更新语法高亮。
+   * 只对「语言不是由文件名决定」的标签生效——临时标签属于这类。
    */
-  private refreshFormat(tabId: string, content: string): void {
+  private refreshLanguage(tabId: string, content: string): void {
     const entry = this.entries.get(tabId);
-    if (entry === undefined || entry.degraded) return;
-    const format = detectFormat(content);
-    if (format === entry.format) return;
-    entry.format = format;
+    if (entry === undefined || entry.degraded || entry.languageFromPath) return;
+    const language = sniffLanguageId(content);
+    if (language === entry.language) return;
+    void this.applyLanguage(tabId, language);
+  }
 
+  /**
+   * 装载语言并热替换语法高亮。
+   * 语法包是异步加载的，加载期间标签可能已被关闭或重建，所以每步都重新取表。
+   */
+  private async applyLanguage(tabId: string, language: LanguageId): Promise<void> {
+    const entry = this.entries.get(tabId);
+    if (entry === undefined) return;
+    if (language === entry.language) return;
+
+    const support = await loadLanguageSafely(language);
+    const current = this.entries.get(tabId);
+    if (current !== entry) return;
+
+    entry.language = language;
     const view = this.view;
-    if (tabId === this.activeTabId && view !== null) {
-      view.dispatch({
-        effects: this.languageCompartment.reconfigure(this.languageExtensionFor(format)),
-      });
+    if (view !== null && tabId === this.activeTabId && !entry.degraded) {
+      view.dispatch({ effects: this.languageCompartment.reconfigure(support) });
     }
-    this.hooks?.onFormat(tabId, format);
+    this.hooks?.onLanguage(tabId, language);
   }
 
   private reportCursor(tabId: string, state: EditorState): void {
@@ -478,14 +522,30 @@ class EditorManager {
     const entry = this.entries.get(tabId);
     entry?.saveContent.cancel();
     entry?.saveCaret.cancel();
-    entry?.detectFormat.cancel();
+    entry?.detectLanguage.cancel();
     this.entries.delete(tabId);
     this.scrollTops.delete(tabId);
     if (this.activeTabId === tabId) this.activeTabId = null;
+
+    // 语言包还在加载、EditorState 尚未建好时就被关掉：
+    // 等建立结束后把它丢掉，否则已关闭的标签会留在内存里、还可能往已删除的记录写内容
+    const pending = this.inflight.get(tabId);
+    if (pending !== undefined) {
+      void pending.then(() => {
+        if (this.entries.delete(tabId)) this.scrollTops.delete(tabId);
+      });
+    }
   }
 
   getActiveTabId(): string | null {
     return this.activeTabId;
+  }
+
+  /** 当前激活标签的语言；跳转扩展用它挑规则 */
+  private activeLanguage(): LanguageId {
+    const tabId = this.activeTabId;
+    if (tabId === null) return "text";
+    return this.entries.get(tabId)?.language ?? "text";
   }
 
   /** 取当前激活标签的最新内容 */

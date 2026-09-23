@@ -12,9 +12,12 @@ src/
 ├── stores/              # Zustand：标签元数据、激活标签、设置、状态栏
 ├── services/            # 数据库、文件 I/O、格式化、会话恢复、窗口几何、
 │                        # 菜单数据（menu.ts）、剪贴板（clipboard.ts）、
-│                        # 窗口级快捷键（shortcuts.ts）、临时文件清理（tempCleanup.ts）
-├── extensions/          # CodeMirror 集成（editorManager、主题、快捷键、语言、YAML 缩进）
-├── utils/               # 纯函数（防抖、换行归一、JSON 错误定位、id）
+│                        # 窗口级快捷键（shortcuts.ts）、临时文件清理（tempCleanup.ts）、
+│                        # 语言表与按需加载（languages.ts）
+├── extensions/          # CodeMirror 集成（editorManager、主题、快捷键、跳转 jump.ts、
+│                        # YAML 缩进）
+├── utils/               # 纯函数（防抖、换行归一、JSON 错误定位、id、
+│                        # 定义定位 definition.ts）
 └── types/               # TypeScript 类型
 src-tauri/               # Tauri 外壳（Rust 侧仅插件注册 + 纯 I/O 桥接命令）
 runtime/                 # 临时文件与验收脚本，禁止提交
@@ -81,6 +84,46 @@ pnpm tauri build      # 打包 release 安装包
   WebView2 对 `clipboard-read` 的默认处理不可靠，会直接拒绝。
 - **退出走 `getCurrentWindow().close()`**：`close()` 会触发 `onCloseRequested`，
   退出前的强制落盘（`flushAll` + 写激活标签 + 写窗口几何）才不会被跳过。
+
+### 语法高亮：25 种语言，全部按需加载
+
+`src/services/languages.ts` 是唯一的语言表：每个语言一条 `LanguageDescription`
+（名称、别名、扩展名、`filename` 正则、`load: () => import(...)`）。
+`load` 只在真正打开该语言的文件时执行，因此：
+
+- **首屏不含任何语法包**。Vite 把每个 `import()` 拆成独立 chunk，实测 22 个语言 chunk
+  合计约 600 KB，全部不在首屏（见「性能实测」）。
+- 语法包只在首次用到时解析，之后按语言缓存（`Map<LanguageId, Extension>`）。
+- 打开过的每种语言才会占内存：小的（JSON 2 KB、XML 12 KB 的产物）到大的
+  （C++ 104 KB、JavaScript 84 KB 的产物）不等。
+
+几处容易踩的点（细节见 [PITFALLS.md](PITFALLS.md)）：
+
+- `LanguageDescription.matchFilename` 比扩展名时**大小写敏感**，所以原文与小写文件名各试一次；
+- `legacy-modes` 的**文件名与导出名不一致**（`mode/dockerfile` 导出 `dockerFile`），写错不会报错，
+  只会静默没有高亮 —— 因此有 `runtime/check-languages.mjs` 逐个真加载一遍；
+- **语言由文件名决定时永不按内容复探**（`TabEntry.languageFromPath`），
+  否则 `.py` 文件会被内容嗅探成 YAML；
+- 语言是异步加载的，`createEntry` 会**先加载完语法包再创建 EditorState**，
+  避免「先无色后上色」的闪烁。
+
+### 跳转到定义：规则来自实测转储，不靠记忆
+
+`Ctrl+Click` 与 `F12` 跳到同一文件内名字的定义，`Alt+←` 回退。分工刻意分成两层：
+
+- `src/utils/definition.ts`：**纯函数**。吃 `Tree` + `Text` + 位置 + 语言，返回结论，
+  不碰 DOM。规则表按语言写「哪些节点名是标识符 / 哪些节点名本身就是定义 /
+  哪些要连父节点一起看」，另有一条「分隔符」规则（Python `a, b = 1, 2` 里只有 `=` 左边的是定义）。
+- `src/extensions/jump.ts`：只做接线 —— 键位、`Ctrl+Click`、悬停虚线下划线装饰、
+  回退历史（`StateField`，每个标签各一份）、状态栏提示。
+
+各语言的节点名是**实测出来的**，不是查文档猜的：`runtime/probe-defs*.mjs` 把
+8 种语言的真实语法树按缩进打印成文本（`runtime/probe-defs*.txt`），规则表照着写。
+只做同文件查找，不解析 `import`，也不做跨文件索引。
+
+`Ctrl+Click` 在 Windows 上本来是 CodeMirror 的「加光标」，所以跳转要显式把
+`EditorView.clickAddsSelectionRange` 改成 `Alt`（多光标随之变成 `Alt+Click`，
+矩形选择用的 `Alt+拖动` 不受影响）。
 
 ## 存储与数据库
 
@@ -150,6 +193,13 @@ pnpm tauri build      # 打包 release 安装包
 | `check-indent.mjs` | JSON / YAML 换行缩进断言（含「不干扰语言自身规则」的回归用例） |
 | `explore-yaml-indent.mjs` | 打印 YAML 在各种上下文下的真实缩进值（定位缺口用） |
 | `check-utils.mjs` | 防抖语义（含按标签隔离）、换行归一、大文件阈值、UUID |
+| `ts-resolve.mjs` | 让 node 直接跑 `src/` 下的 TS：给无扩展名的相对导入补 `.ts`（用 `--import` 加载） |
+| `check-languages.mjs` | 25 种语言的名字映射、内容嗅探、**逐个真加载并解析出语法树**、缓存与 `text` 语义 |
+| `probe-defs.mjs` / `probe-defs2.mjs` / `probe-defs3.mjs` | 把各语言真实语法树按缩进转储成 `probe-defs*.txt`，跳转规则照此编写 |
+| `check-jump.mjs` | 9 套跳转规则共 60+ 条断言（引用→定义、self / missing / empty / unsupported、大文件索引耗时） |
+| `measure-lang-memory.mjs` | 语法包与语法树的堆占用（`--expose-gc` + 保留 N 份文档再除以 N） |
+| `measure-langs.ps1` / `measure-langs.mjs` | 四种内容各跑一遍，量应用与 WebView2 的内存、编辑器配色数、状态栏语言胶囊宽度；`.mjs` 负责备份 / 还原数据库与种入单标签会话 |
+| `check-highlight.ps1` | 数编辑器里**精确命中** `defaultHighlightStyle` 各 token 颜色的像素数：纯文本应为 0，Python / C++ 应 > 0 |
 | `check-json-error.mjs` | JSON 错误定位与 V8 报错交叉验证 |
 | `check-libs.mjs` | js-yaml v5 的 `loadAll` / `dump` 行为核对 |
 | `check-perms.mjs` | 列出 `core:window:default` 实际授予的权限 |
@@ -175,12 +225,26 @@ pnpm tauri build      # 打包 release 安装包
 node runtime/verify-db.mjs
 node runtime/check-utils.mjs
 node runtime/check-json-error.mjs
+node --import ./runtime/ts-resolve.mjs runtime/check-languages.mjs
+node --import ./runtime/ts-resolve.mjs runtime/check-jump.mjs
+node --expose-gc --import ./runtime/ts-resolve.mjs runtime/measure-lang-memory.mjs
 
 # 界面与窗口（会短暂启动一次应用，看完自己关掉）
 & .\runtime\check-chrome.ps1      # 标题栏 / 原生菜单 / 缩放边框
 & .\runtime\check-tabbar.ps1      # 标签栏高度与分割线
 & .\runtime\check-layout.ps1      # 把窗口渲染成字符画看布局
+& .\runtime\check-highlight.ps1   # 语法高亮是否真的画出来了（数精确 token 颜色）
+& .\runtime\measure-langs.ps1     # 四种内容的内存对照（会备份 / 还原数据库）
 ```
+
+`measure-langs.ps1` 会**改写数据库**（种入单标签会话）来做对照，跑完记得：
+
+```powershell
+node runtime/measure-langs.mjs restore   # 还原实验前的 recorder.db
+```
+
+后两个脚本要用 `--import ./runtime/ts-resolve.mjs`：node 24 能直接执行 `.ts`（类型擦除），
+但源码里的相对导入是 bundler 风格的无扩展名写法，ESM 解析不了，那个钩子负责补 `.ts`。
 
 ## 性能实测
 
@@ -188,14 +252,15 @@ node runtime/check-json-error.mjs
 
 | 指标 | 目标 | 实测 | 结论 |
 |------|------|------|------|
-| 主程序体积 | < 15 MB | **6.65 MB** | ✅ |
-| NSIS 安装包 | — | 2.48 MB | — |
-| 冷启动到窗口可见 | < 1.5 s | **0.50 s** | ✅ |
+| 主程序体积 | < 15 MB | **6.85 MB** | ✅ |
+| NSIS 安装包 | — | 2.68 MB | — |
+| 冷启动到窗口可见 | < 1.5 s | **0.55 s** | ✅ |
 | 空闲内存（应用自身进程） | < 80 MB | **25.9 MB** | ✅ |
-| 空闲内存（含 WebView2 辅助进程） | < 80 MB | **约 364 MB** | ❌ 超出 |
+| 空闲内存（含 WebView2 辅助进程） | < 80 MB | **约 367 MB** | ❌ 超出 |
 
-体积比上一版略增（6.34 → 6.65 MB，安装包 2.36 → 2.48 MB），来自为自绘菜单引入的
-剪贴板插件；标题行与标签栏改成自绘后前端产物只增加约 1 KB。
+体积比上一版略增（6.65 → 6.85 MB，安装包 2.48 → 2.68 MB）：其中约 0.2 MB 来自
+本轮加入的 25 种语言语法包（前端 22 个按需 chunk 合计约 600 KB，压缩进安装包后约 200 KB）
+与跳转到定义的逻辑；此前那 0.31 MB 增量为自绘菜单引入的剪贴板插件。
 
 **关于内存指标的说明（重要）：**
 
@@ -215,10 +280,42 @@ temporary-recorder      25.9 MB 工作集
 - 若指**含 WebView2 全部辅助进程的总和**，则约 359 MB，**超出 80 MB 的目标**。
 
 这部分开销来自 WebView2 运行时本身，不是本项目代码造成的：前端产物仅
-772 KB（JS 752 KB + CSS 15 KB + 图标 5 KB），CodeMirror 与 React 都常驻内存但占比很小。
+**约 790 KB**（首屏 JS 768 KB + CSS 16 KB + 图标 5 KB；另有 22 个按需加载的语言 chunk，
+合计约 600 KB，只有打开对应语言的文件时才会下载与解析）。
+CodeMirror 与 React 都常驻内存但占比很小。
 在「Tauri v2 + 系统 WebView2」这一技术选型下（本项目技术栈已定，不得更改），
 把含 WebView2 辅助进程的总内存压到 80 MB 以下并不现实。
 选择 Tauri 而非 Electron 的收益主要体现在**体积**（6 MB vs 通常 80 MB+）上。
+
+**语言高亮没有让首屏变大。** 加入 25 种语言与跳转到定义之后，用同一套工具链
+对「功能之前」（`git worktree` 检出上一个提交）与现在各构建一次做 A/B：
+
+| 产物 | 之前 | 现在 |
+|---|---|---|
+| 首屏 JS | 769.77 KB | **768.61 KB** |
+| 首屏 JS（gzip） | 244.41 KB | **242.67 KB** |
+| 语言 chunk | — | 22 个，合计约 600 KB（按需） |
+
+首屏反而小了 1.2 KB：原先 `@codemirror/lang-json` / `lang-yaml` 是静态导入、
+必然进首屏（其中 YAML 语法表本身就有 30 KB），现在被拆到按需 chunk 里；
+新增的跳转逻辑（约 6 KB）没有把这点收益吃掉。语法包各自只占内存，
+实测首次加载 25 种语言合计约 100 ms（都是一次性的，之后走缓存）。
+
+### 语言高亮到底吃多少内存（实测）
+
+分三个口径量（脚本见「验收辅助脚本」）：
+
+| 口径 | 实测 | 说明 |
+|---|---|---|
+| 首次用到某语言时的一次性开销 | 25 种全加载 **+4.6 MB 堆** | `measure-lang-memory.mjs`（node 堆增量，全部保留不回收）。中位数每种约 50 KB，最大是 Markdown 约 1.7 MB（它带一整套 CommonMark 与内嵌语言） |
+| 每打开一个文档 | 源码字节的 **1.5–2.7 倍** | 同一份内容建 40 / 10 份并保留，总增量除以份数（含文档文本 + 语法树 + 语言状态）。Python 171 KB → 0.46 MB；3.4 MB → 8.5 MB。JavaScript 更省（1.5 倍） |
+| 应用自身进程内存 | **没有可测量的变化** | `measure-langs.ps1` 对四种内容（纯文本 / Python / C++ / 720 KB Python）各启动一次，应用进程都是 25.9–28.1 MB |
+
+WebView2 渲染进程的读数在 100–107 MB 之间来回摆（六进程私有工作集合计），
+**与加载了哪种语言无关**：最大的那份语法包（C++，104 KB chunk）反而测到最低值，
+2.4 MB 的 Python 文档也没有让它抬高。也就是说单语言的增量低于这套测法的噪声下限（约 ±7 MB），
+而「25 种全开」这个上限是 4.6 MB。结论：**按需加载 + 只开了两种语言的实际场景下，
+高亮的内存代价可以忽略**；真正会累积的是「同时打开很多大文件」（每份约为源码体积的 2 倍）。
 
 > 说明：工作集（Working Set）会把各进程共享的 DLL 页面重复计入，因此
 > 「工作集求和」会明显高估；「私有工作集」是更公平的口径。
@@ -274,8 +371,33 @@ temporary-recorder      25.9 MB 工作集
 - 无边框改造后**几何零漂移**：启动-关闭连续 3 轮，均为 `900x650 @ (502,175)`
 - 剪贴板插件的权限标识符写错会**在构建期**被 tauri-build 拦下（本轮借此确认了
   `clipboard-manager:allow-read-text` / `allow-write-text` 正确）
+- **25 种语言真的能加载**（`runtime/check-languages.mjs`）：逐个 `await import` 语法包，
+  用一段该语言的样例建 `EditorState` 并数语法树的命名节点（全部 > 1），
+  顺带核对 24 条「文件名 → 语言」映射（含 `.PY` 大写扩展名、`Dockerfile`、`.env`、认不出的返回 null）
+  与 8 条内容嗅探；`text` 返回空扩展、同一语言只加载一次（返回同一扩展对象）
+- **跳转规则**（`runtime/check-jump.mjs`）：9 套规则共 60+ 条断言，全部按真实语法树跑
+  （引用→定义、`self` / `missing` / `empty` / `unsupported` 四种结论、Python `for ... in`
+  的分隔符规则、Rust `impl` 里的类型名只算引用）；1500 行 Python 实测
+  解析 20ms / 首次建索引 3ms / 缓存后 0.01ms（索引按 `Tree` 对象缓存，文档一变自动失效）
+- **首屏 JS 没有变大**（A/B 构建，见「性能实测」）：769.77 KB → 768.61 KB
+- **高亮是真的画出来了**（`runtime/check-highlight.ps1`，数精确颜色像素）：
+  纯文本负载命中 token 颜色 **0** 个像素；Python 负载 234 个
+  （keyword `#770088` 101、definition `#0000ff` 105、propertyName `#116677` 24、number `#116644` 4）；
+  C++ 负载 286 个（keyword 133、typeName `#008855` 153）。
+  这些颜色只有 `defaultHighlightStyle` 在语法树打了 token 标签时才会出现，
+  因此这是「文件名 → 语言 → 动态加载语法包 → 真的着色」整条链路的端到端证据
+- **状态栏显示的是语言表里的名字**：同样三次启动量到的语言胶囊宽度为
+  `.txt` 41px、`.py` 42px、`.cpp` 47px，与「纯文本 / Python / C / C++」的字符串宽度一致
+  （旧实现只有 JSON / YAML / 纯文本三个值，`.cpp` 会显示成「纯文本」= 41px）
+- **内存对照**：四种内容各启动一次，应用进程 25.9 / 26.1 / 26.0 / 26.0 MB；
+  WebView2 六进程私有工作集 100.4–107.3 MB，与语言无关（见「性能实测」）
 
 需要人工在界面上确认（无法脚本化）：
+
+- **`Ctrl+Click` / `F12` 跳转、`Alt+←` 回退、悬停虚线下划线**：
+  合成鼠标事件会被 WebView 当成不可信事件，且本机前台窗口是远程桌面会话，
+  无法注入输入，只能人工点一次
+- **`Alt+Click` 多光标**（本轮把它从 `Ctrl+Click` 换了过来，同样是 CodeMirror 原生能力）
 
 - **把文件拖进窗口能否打开**（OS 级拖放无法程序化合成）：多文件、目录、超大文件、
   已打开过的文件各试一次

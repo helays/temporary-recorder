@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { DocFormat } from "../types/models";
+import type { LanguageId } from "../types/models";
 
 export type StatusMessageKind = "error" | "info";
 
@@ -17,7 +17,8 @@ interface StatusState {
   cursorColumn: number;
   selectionLength: number;
   docLength: number;
-  format: DocFormat;
+  /** 当前标签的语法高亮语言（状态栏显示） */
+  language: LanguageId;
   largeFile: boolean;
   message: StatusMessage | null;
   /** 设置面板是否打开（纯 UI 状态） */
@@ -32,7 +33,7 @@ interface StatusState {
     selectionLength: number,
     docLength: number,
   ) => void;
-  setFormat: (format: DocFormat) => void;
+  setLanguage: (language: LanguageId) => void;
   setLargeFile: (large: boolean) => void;
   setMessage: (message: StatusMessage | null) => void;
   /** 数据库错误统一走这里：显示在状态栏，不弹窗、不崩溃 */
@@ -47,7 +48,7 @@ export const useStatusStore = create<StatusState>((set) => ({
   cursorColumn: 1,
   selectionLength: 0,
   docLength: 0,
-  format: "text",
+  language: "text",
   largeFile: false,
   message: null,
   settingsOpen: false,
@@ -56,7 +57,7 @@ export const useStatusStore = create<StatusState>((set) => ({
   setAboutOpen: (aboutOpen) => set({ aboutOpen }),
   setCursor: (cursorLine, cursorColumn, selectionLength, docLength) =>
     set({ cursorLine, cursorColumn, selectionLength, docLength }),
-  setFormat: (format) => set({ format }),
+  setLanguage: (language) => set({ language }),
   setLargeFile: (largeFile) => set({ largeFile }),
   setMessage: (message) => set({ message }),
   setDbError: (text) => set({ message: { kind: "error", text } }),

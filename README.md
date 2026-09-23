@@ -8,7 +8,6 @@
 ![TypeScript 6](https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![CodeMirror 6](https://img.shields.io/badge/CodeMirror-6-B483F3?style=flat-square&logo=codemirror&logoColor=white)
 
-> 仓库目录名与 Cargo 包名仍是 `Temporary-recorder` / `temporary-recorder`（见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)）。用户可见的产品名是**闪记**。
 
 轻量级 Windows 桌面应用，用于临时记录、编辑、格式化文本内容。
 定位是「快速打开、随手记录、随时关闭」——不是 IDE，也不是笔记软件。
@@ -16,6 +15,7 @@
 多标签、自动保存、重启后完整恢复上次的标签与窗口状态；内置 JSON / YAML 格式化；
 可以直接打开真实的 `.json` / `.yaml` / `.txt` 文件就地编辑，也可以纯随手记——
 新建标签会立刻在临时目录里落一个文件，随时能「另存为」到正式位置。
+内置 **25 种语言的语法高亮**与**同一文件内的「跳转到定义」**（`F12` / `Ctrl+Click`，`Alt+←` 回退）。
 主题跟随系统（也可手动指定浅色 / 深色）。
 窗口是无边框的，顶部只有一行「图标 + 菜单 + 窗口按钮」（VS Code 那种形态），
 标签栏是矮胶囊样式、标签之间没有分割线。
@@ -89,7 +89,9 @@
 | `Shift+Alt+F` | 格式化（按内容自动识别 JSON / YAML） |
 | `Shift+Alt+M` | 压缩（仅 JSON） |
 | `Ctrl+D` | 选下一个相同词（CodeMirror 默认行为） |
-| `Alt+Click` | 多光标（CodeMirror 默认行为） |
+| `Alt+Click` | 多光标（`Ctrl+Click` 已让位给「跳转到定义」，故多光标改用 `Alt`） |
+| `F12` / `Ctrl+Click` | 跳转到光标处 / 点击处名字的定义（同一文件内） |
+| `Alt+←` | 回到上一次跳转前的位置（每个标签各记 50 层） |
 
 其它界面操作：
 
@@ -97,6 +99,31 @@
 - 移动窗口：拖动标题栏空白处；**双击标题栏空白处**最大化 / 还原
 - 缩放窗口：拖四条边或四个角（无边框但保留了缩放边框，见 [PITFALLS.md 第 14 条](docs/PITFALLS.md)）
 - 菜单键盘操作：`←` / `→` 换顶级菜单，`↑` / `↓` 移动高亮，`Enter` 执行，`Esc` 关闭
+
+## 语法高亮与跳转
+
+打开文件时按**文件名**立刻确定语言（所以 `.py` 不会被内容误判成 YAML）；
+新建的临时标签没有文件名可依，就按内容嗅探——只认 JSON / YAML，认不出就是纯文本。
+当前语言显示在状态栏。
+
+| 分组 | 语言（扩展名举例） |
+|---|---|
+| 脚本 / 编译型 | JavaScript `.js` `.mjs` `.cjs`、TypeScript `.ts` `.mts`、JSX / TSX `.jsx` `.tsx`、Python `.py`、C / C++ `.c` `.h` `.cpp` `.hpp`、Rust `.rs`、Go `.go`、Java `.java` |
+| 配置 / 数据 | JSON `.json` `.jsonc`、YAML `.yaml` `.yml`、TOML `.toml`、INI `.ini` `.properties` `.env` |
+| 标记 / 查询 | HTML `.html`、CSS `.css` `.scss` `.less`、XML `.xml` `.svg`、Markdown `.md`、SQL `.sql` |
+| 脚本 / 其它 | Shell `.sh` `.bash`、PowerShell `.ps1`、Dockerfile（按文件名）、Lua `.lua`、Ruby `.rb`、Perl `.pl`、R `.r` |
+
+**跳转到定义**（只在当前文件内查找，不解析 `import`）：
+
+- 支持 JavaScript / TypeScript / JSX / TSX、Python、Rust、Go、Java、C / C++，以及 YAML 的锚点与别名；
+- 光标下的名字有定义时会有虚线下划线与手型光标；
+- 找不到定义时**只在状态栏提示，不弹窗**；
+- 长文件里定义在视口之外也能跳到（搜索前会把语法树补解析到文末，上限 0.5 秒）。
+
+语法包是**按需加载**的：没打开过的语言不占内存，首屏产物里也不含任何语法包
+（实测首屏 JS 因此比加入该功能之前还小 1.2 KB，见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)）。
+内存代价实测：25 种语言全部加载约 **+4.6 MB**；每个打开的文档约再占**源码体积的 1.5–2.7 倍**
+（含语法树），应用自身进程的内存没有可测量的变化。
 
 ## 设置（`Ctrl+,` 或顶部菜单 设置 ▸ 打开设置…）
 

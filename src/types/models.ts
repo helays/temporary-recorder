@@ -50,8 +50,44 @@ export type FormatResult =
   | { ok: true; value: string; changed: boolean }
   | { ok: false; message: string; line?: number; column?: number };
 
-/** 编辑器支持的文档格式 */
+/**
+ * 可格式化的文档格式：LanguageId 的子集。
+ * 格式化 / 压缩只认这三种。
+ */
 export type DocFormat = "json" | "yaml" | "text";
+
+/**
+ * 语法高亮语言。
+ * text 表示纯文本；json / yaml 同时是两种可格式化的格式。
+ * 语言包按需动态加载，改动这里时同步维护 services/languages.ts 的语言表。
+ */
+export type LanguageId =
+  | "text"
+  | "json"
+  | "yaml"
+  | "markdown"
+  | "html"
+  | "css"
+  | "xml"
+  | "sql"
+  | "javascript"
+  | "jsx"
+  | "typescript"
+  | "tsx"
+  | "python"
+  | "cpp"
+  | "rust"
+  | "go"
+  | "java"
+  | "powershell"
+  | "shell"
+  | "toml"
+  | "ini"
+  | "dockerfile"
+  | "lua"
+  | "ruby"
+  | "perl"
+  | "r";
 
 /** 主题偏好：跟随系统 / 强制浅色 / 强制深色 */
 export type ThemePref = "system" | "light" | "dark";

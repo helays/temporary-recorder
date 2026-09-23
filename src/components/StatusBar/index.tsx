@@ -1,19 +1,13 @@
 import { formatActiveTab, minifyActiveTab } from "../../services/formatActions";
+import { languageLabel } from "../../services/languages";
 import { useStatusStore } from "../../stores/statusStore";
-import type { DocFormat } from "../../types/models";
-
-const FORMAT_LABEL: Record<DocFormat, string> = {
-  json: "JSON",
-  yaml: "YAML",
-  text: "纯文本",
-};
 
 export function StatusBar() {
   const cursorLine = useStatusStore((state) => state.cursorLine);
   const cursorColumn = useStatusStore((state) => state.cursorColumn);
   const selectionLength = useStatusStore((state) => state.selectionLength);
   const docLength = useStatusStore((state) => state.docLength);
-  const format = useStatusStore((state) => state.format);
+  const language = useStatusStore((state) => state.language);
   const largeFile = useStatusStore((state) => state.largeFile);
   const message = useStatusStore((state) => state.message);
   const setMessage = useStatusStore((state) => state.setMessage);
@@ -28,7 +22,7 @@ export function StatusBar() {
       )}
       <span className="shrink-0 tabular-nums">共 {docLength} 字符</span>
       <span className="shrink-0 rounded-sm bg-app-hover px-1 text-app-fg">
-        {FORMAT_LABEL[format]}
+        {languageLabel(language)}
       </span>
       {largeFile && (
         <span className="shrink-0 text-app-warn">已关闭语法高亮（内容过大）</span>

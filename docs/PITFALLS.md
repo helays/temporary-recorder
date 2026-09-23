@@ -220,3 +220,74 @@ clipboard-manager:allow-write-text
   `data-tauri-drag-region="false"`**，否则点面板的空白处会把窗口拖走。
 - **双击拖动区切换最大化是脚本自带的**（`e.detail === 2` 时发
   `internal_toggle_maximize`），不需要自己写 `onDoubleClick`。
+
+## 17. `LanguageDescription.matchFilename` 比扩展名时大小写敏感
+
+`@codemirror/language` 的 `matchFilename(descs, filename)` 先比每条语言的 `filename`
+正则，再取**最后一个点之后**的部分与 `extensions` 数组比对，而且：
+
+- `extensions` 里写的是**不带点**的扩展名（`["json"]`，不是 `[".json"]`）；
+- 那个比对是 `indexOf`，**大小写敏感**（源码里是 `d.extensions.indexOf(ext[1])`）。
+
+于是 `MAIN.PY` 这种全大写扩展名匹配不上。`languageIdFromPath` 的做法是原文与小写
+文件名各试一次：小写那份保证扩展名命中，原文那份保证 `filename` 正则（如
+`/^Dockerfile$/i`，靠正则自己的 `i` 标志）命中——先把文件名整体小写会反而漏掉后者。
+
+## 18. `legacy-modes` 的文件名与导出名不一致，写错是静默失效
+
+`@codemirror/legacy-modes/mode/dockerfile` 导出的是 `dockerFile`（大写 F），
+`mode/powershell` 导出的是 `powerShell`。TypeScript 会拦住写错的导出名，
+但**动态 `import()` 里取错属性名不会崩**——只是这个语言永远没有高亮。
+
+所以有一条针对性检查：`runtime/check-languages.mjs` 把 25 种语言**逐个真加载**并用样例
+建 `EditorState` 数语法树节点数，加载失败或取到 `undefined` 立刻暴露。
+
+## 19. 没有 `EditorView` 时 `syntaxTree()` 只返回已解析的前缀
+
+CodeMirror 的解析是**惰性**的：视口内的部分先解析，其余在后台推进。没有挂载
+`EditorView`（例如纯 node 断言里）时后台解析不会推进，`syntaxTree(state)` 对一篇 23 KB 的文档
+只给出开头一小段——在文末按位置查定义会得到「找不到」，看起来像跳转有 bug。
+
+修法是显式补解析：应用里用 `ensureSyntaxTree(state, state.doc.length, 500)`
+（带毫秒上限），node 断言里同样。
+
+## 20. Windows 上 `Ctrl+Click` 本来是「加光标」
+
+`@codemirror/view` 里 `clickAddsSelectionRange` 的默认值是
+`browser.mac ? metaKey : ctrlKey`（见 `dist/index.js` 的 facet 定义），
+也就是说 **Windows 上 Ctrl+Click = 多光标**。要让位给「跳转到定义」，必须显式
+`EditorView.clickAddsSelectionRange.of((e) => e.altKey)`，否则两种行为会同时触发：
+既跳转又加一个光标。
+
+副作用是**多光标从此变成 `Alt+Click`**（与 VS Code 一致）。矩形选择用的是
+`Alt+拖动`（`rectangularSelection` 的默认 filter 是 `e.altKey && e.button == 0`），
+`crosshairCursor` 默认也是 Alt，两者都不受影响。
+
+## 21. 内容嗅探把 `def f():` 当成 YAML
+
+按内容嗅探语言时复用的是格式化那套 `detectFormat`：它只在
+「js-yaml 解析出的顶层值是对象 / 数组」时认 YAML。而 `def f():\n    return x`
+恰好是一个合法的 YAML 映射（键 `def f()`，值 `return x`），于是会被判成 YAML。
+
+这是**刻意的取舍**：格式化功能依赖这套宽松语义（`src/services/format.ts` 的
+`detectFormat` 注释里写明了为什么不能收紧），而临时标签没有文件名可依。影响面被两处收窄：
+
+- **文件标签不受影响**——语言由文件名决定，且带 `languageFromPath` 标记后**永不按内容复探**
+  （否则一个 `.py` 文件会被自己内容改判成 YAML）；
+- 误判的代价限于「颜色不对 + 回车按 YAML 缩进」，不会改坏内容。
+
+`runtime/check-languages.mjs` 把这个行为写成断言，改动嗅探逻辑时会立刻被这条断言提醒。
+
+## 22. pnpm 的严格目录布局：`@lezer/common` 不在根 `node_modules`
+
+类型里需要 `Tree` / `SyntaxNode` 时，`import type { Tree } from "@lezer/common"` 会直接
+解析失败——`@lezer/common` 只是 `@codemirror/language` 的传递依赖，pnpm 不会把它平铺到根。
+
+两条路：把它显式写进 `dependencies`，或者从已有 API 反推类型。这里选了后者：
+
+```ts
+type SyntaxTree = ReturnType<typeof syntaxTree>;
+type TreeNode = SyntaxTree["topNode"];
+```
+
+不新增依赖，也不影响运行时（`Tree` 本来就来自 CodeMirror）。

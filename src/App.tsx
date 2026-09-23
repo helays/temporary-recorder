@@ -57,9 +57,12 @@ editorManager.configure({
     if (tabId !== useTabsStore.getState().activeTabId) return;
     useStatusStore.getState().setLargeFile(large);
   },
-  onFormat: (tabId, format) => {
+  onLanguage: (tabId, language) => {
     if (tabId !== useTabsStore.getState().activeTabId) return;
-    useStatusStore.getState().setFormat(format);
+    useStatusStore.getState().setLanguage(language);
+  },
+  onStatusMessage: (kind, text) => {
+    useStatusStore.getState().setMessage({ kind, text });
   },
   keymapHandlers: {
     newTab: () => {

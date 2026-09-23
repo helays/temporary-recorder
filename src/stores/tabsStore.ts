@@ -12,7 +12,7 @@ import {
 import { writeActiveTab } from "../services/sessionRepo";
 import { tempFilePath } from "../services/tempFiles";
 import { writeTextFile } from "../services/fileService";
-import { formatFromPath } from "../services/format";
+import { languageIdFromPath } from "../services/languages";
 import { editorManager } from "../extensions/editorManager";
 import { useStatusStore } from "./statusStore";
 
@@ -252,7 +252,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       cursorLine: 0,
       cursorCh: 0,
       scrollTop: 0,
-      format: formatFromPath(filePath) ?? undefined,
+      languageId: languageIdFromPath(filePath) ?? undefined,
     });
     set((state) => ({ tabs: [...state.tabs, toMeta(record)], activeTabId: id }));
     await writeActiveTab(id);
