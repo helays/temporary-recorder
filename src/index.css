@@ -20,12 +20,16 @@
   --app-warn: #9a6700;
   --app-hover: rgba(0, 0, 0, 0.06);
   /*
-   * 滚动条拇指。正常态对齐 VS Code 的滑块色（浅色 #64646466、深色 #79797966），
-   * 空闲时整条透明、鼠标进入容器才浮现，见下面的滚动条规则。
+   * 滚动条拇指：**常显但克制**，指到拇指上加深、拖动时最深（VS Code 就是这个行为）。
+   *
+   * 为什么不做「不悬停就完全透明」：试过，两个毛病——Chromium 不保证在宿主 :hover
+   * 时重绘滚动条伪元素（要等一次点击才刷新，看着像"点了才出来"），
+   * 而且 `*:hover` 会命中 body 这类祖先，鼠标在窗口任何地方都算悬停，
+   * 于是滚动条一直显着（详见 docs/PITFALLS.md 第 26 条）。
    */
-  --app-scroll-thumb: rgba(100, 100, 100, 0.4);
-  --app-scroll-thumb-strong: rgba(100, 100, 100, 0.6);
-  --app-scroll-thumb-pressed: rgba(100, 100, 100, 0.8);
+  --app-scroll-thumb: rgba(100, 100, 100, 0.25);
+  --app-scroll-thumb-strong: rgba(100, 100, 100, 0.45);
+  --app-scroll-thumb-pressed: rgba(100, 100, 100, 0.7);
   /*
    * 选中标签的填充色。刻意比栏底色（--app-panel #f6f7f9）深一档：
    * 选中态不使用描边，全靠这个背景色区分，而编辑器白底与栏底只差 4%，太淡。
@@ -44,9 +48,9 @@
   --app-danger: #e06c75;
   --app-warn: #e5c07b;
   --app-hover: rgba(255, 255, 255, 0.08);
-  --app-scroll-thumb: rgba(121, 121, 121, 0.4);
-  --app-scroll-thumb-strong: rgba(121, 121, 121, 0.6);
-  --app-scroll-thumb-pressed: rgba(191, 191, 191, 0.6);
+  --app-scroll-thumb: rgba(121, 121, 121, 0.25);
+  --app-scroll-thumb-strong: rgba(121, 121, 121, 0.45);
+  --app-scroll-thumb-pressed: rgba(191, 191, 191, 0.5);
   /* 深色主题同样比栏底（#21252b）更深一档；与悬停色（比栏底更亮）方向相反，天然可分 */
   --app-tab-active: #16191e;
   color-scheme: dark;
@@ -108,14 +112,14 @@ body,
   background: transparent;
 }
 
-/* 空闲时整条透明，鼠标进入容器才浮现 */
+/*
+ * 拇指常显但克制；只在**拇指自身**被指到/拖动时加深。
+ * 不要写成 `*:hover::-webkit-scrollbar-thumb`：`*:hover` 会命中 body 这类祖先，
+ * 鼠标在窗口里任何位置都算悬停，滚动条会一直显着（踩过，见 PITFALLS 26）。
+ */
 *::-webkit-scrollbar-thumb {
-  background-color: transparent;
-  border-radius: 4px;
-}
-
-*:hover::-webkit-scrollbar-thumb {
   background-color: var(--app-scroll-thumb);
+  border-radius: 4px;
 }
 
 *::-webkit-scrollbar-thumb:hover {

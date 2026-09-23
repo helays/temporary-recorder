@@ -96,17 +96,23 @@ pnpm tauri build      # 打包 release 安装包
 
 ### 滚动条
 
-- `index.css` 里一组**全局细滚动条**（8px、透明轨道、圆角拇指、隐藏两端箭头、
-  鼠标进入容器才浮现）。只用 `::-webkit-scrollbar`：WebView2 就是 Chromium，
+- `index.css` 里一组**全局细滚动条**（8px、透明轨道、圆角拇指、隐藏两端箭头）。
+  拇指**常显但克制**（`rgba(100,100,100,.25)`，白底上约 `#D8D8D8`），
+  只在 `::-webkit-scrollbar-thumb:hover` / `:active` 时加深——即 VS Code 的行为。
+  只用 `::-webkit-scrollbar`：WebView2 就是 Chromium，
   而 `scrollbar-width` / `scrollbar-color` 与它同时写会互相干扰，宽度会变得不可预期。
   `.tabstrip` 是例外——标签栏**完全隐藏**滚动条（原来的设计，保持不变）。
 - 编辑器那根在 `extensions/theme.ts` 的 `sharedChrome` 里按 VS Code 口径定义：
   总宽 14px、轨道透明、拇指用 `border: 3px solid transparent` + `background-clip: content-box`
-  收成可见约 8px（14 − 3×2）的圆角条、无箭头、悬停浮现。颜色取 `index.css` 的 CSS 变量，
+  收成可见约 8px（14 − 3×2）的圆角条、无箭头。颜色取 `index.css` 的 CSS 变量，
   所以浅色 / 深色共用一份定义。
 - CodeMirror **不提供任何滚动条样式**（`@codemirror/view` 的 baseTheme 里只有
   `overflow-x: auto`，竖轴靠 CSS 规则推导成 auto），真正的滚动元素是 `.cm-scroller`
   （`view.scrollDOM`），所以要改就得自己写这个选择器。
+- **刻意没有**做「不悬停就完全透明」，也没有「宿主 hover 浮现」：
+  前者在 Chromium 上不可靠（要等一次点击才重绘），后者会因为 `*:hover` 命中 `body`
+  而变成「鼠标在窗口里就一直显着」。两个坑都踩过一次，细节与结论见
+  [PITFALLS.md 第 26 条](PITFALLS.md)。
 - 那个「概览标尺 / 代码缩略图」没有做：CodeMirror 没有现成 API，自绘或引依赖
   都和这个项目的「轻」定位不符。
 
@@ -503,14 +509,19 @@ WebView2 渲染进程的读数在 100–107 MB 之间来回摆（六进程私有
   已 `preventDefault` 的事件被跳过、`dispose` 后监听器被摘掉
 - **滚动条**：
   - 规则层（`runtime/check-scrollbar.mjs`，读产物并归一化压缩写法）：全局
-    `::-webkit-scrollbar` 宽 8px、轨道与角落透明、空闲拇指透明、容器 hover 才着色、
-    hover/active 加深、箭头隐藏、没有混用 `scrollbar-width`、标签栏仍完全隐藏；
-    编辑器的 `.cm-scroller` 是 14px、轨道透明、拇指 `border:3px solid transparent` +
-    `background-clip:content-box`（可见 14−3×2 = 8px）、悬停才浮现
+    `::-webkit-scrollbar` 宽 8px、轨道与角落透明、拇指常显（token 色，不是 transparent）、
+    拇指 hover/active 加深、箭头隐藏、没有混用 `scrollbar-width`、标签栏仍完全隐藏，
+    并且**断言两条回归**——产物里不能出现 `*:hover::-webkit-scrollbar-thumb`
+    （会因 `body:hover` 一直显着）、也不能出现透明的空闲拇指（Chromium 不保证宿主 hover 重绘）；
+    编辑器的 `.cm-scroller` 是 14px、轨道透明、拇指 `var(--app-scroll-thumb)` +
+    `border:3px solid transparent` + `background-clip:content-box`（可见 14−3×2 = 8px）、
+    没有 `.cm-scroller:hover` 那条宿主规则
   - 像素层（`runtime/check-scrollbar.ps1`，种入长文档后量编辑器右缘 14px）：
     默认 Chromium 轨道色 `#f1f1f1` **0 像素**、默认拇指色 `#c1c1c1` **0 像素**、
-    正文侵入该条 **0 像素**、其它非白像素 **0 像素** —— 最后一条同时证明了
-    「悬停才浮现」（截屏时鼠标不在窗口里，滚动条完全不可见）
+    正文侵入该条 **0 像素**；拇指**画出来了**：颜色 = 空闲 token 叠白底的 `#D8D8D8`，
+    可见宽度 **8px**、左右各内缩 **3px**（14 − 3×2 的几何）。
+    在真实运行的应用上（`runtime/inspect-window.ps1`，不种数据不杀进程）同一处
+    读数为 **2400 像素 = 8px × 300 行**，默认轨道 0 像素
 - **首屏 JS**：776.86 KB（「使用说明」12.15 KB 走 `React.lazy` 独立 chunk，
   不按 F1 不加载；M19 是 769.77 KB，语言功能那次反而小了 1.2 KB）
 
@@ -519,7 +530,8 @@ WebView2 渲染进程的读数在 100–107 MB 之间来回摆（六进程私有
 - **三个快捷键真的打开对应面板**：`Ctrl+F` / `Ctrl+R`（同一个搜索面板，焦点在搜索框）/
   `Ctrl+G`（转到行对话框，可写「行:列」）；`Ctrl+H` 无反应
 - **`F1` / 帮助 ▸ 使用说明**：弹窗渲染、左侧目录跳转、`Esc` 与点外部关闭
-- **滚动条的悬停浮现**：鼠标移进编辑器 / 面板时拇指才出现、移开后消失
+- **滚动条的悬停加深**：指针真的落在拇指上时变深、拖动时最深（照 VS Code 的行为；
+  不做「不悬停就透明」，原因见上面的滚动条一节）
 - **语言下拉的交互**：点胶囊展开 / 再点关闭 / 点外部关闭 / `Esc` 关闭并回到编辑器 /
   `↑↓` 移动 / `Enter` 选中；选完后面板上的勾与状态栏的圆点标记
 - **`Ctrl+Click` / `F12` 跳转、`Alt+←` 回退、悬停虚线下划线**：

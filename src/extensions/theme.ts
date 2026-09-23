@@ -9,8 +9,12 @@ import type { ResolvedTheme } from "../types/models";
  *
  * 滚动条按 VS Code 的口径：总宽 14px、轨道透明、两端无箭头，
  * 拇指用透明边框 + background-clip 收成**可见约 8px** 的圆角条（居中）；
- * 空闲时整条透明，鼠标进入编辑器才浮现——与全局细滚动条同一套行为，只是更宽。
- * 颜色走 index.css 里的 CSS 变量，所以两套主题共用这一份定义。
+ * 拇指常显但克制，指到拇指上/拖动时加深。颜色走 index.css 里的 CSS 变量，
+ * 所以两套主题共用这一份定义。
+ *
+ * 这里刻意**不写** `.cm-scroller:hover::-webkit-scrollbar-thumb`：
+ * Chromium 不保证在宿主 :hover 时重绘滚动条伪元素（要等一次点击才刷新），
+ * 而且「鼠标在内容区也算悬停」并不是想要的效果，详见 PITFALLS 第 26 条。
  */
 const sharedChrome = EditorView.theme({
   "&": {
@@ -39,13 +43,10 @@ const sharedChrome = EditorView.theme({
     background: "transparent",
   },
   ".cm-scroller::-webkit-scrollbar-thumb": {
-    backgroundColor: "transparent",
+    backgroundColor: "var(--app-scroll-thumb)",
     border: "3px solid transparent",
     backgroundClip: "content-box",
     borderRadius: "7px",
-  },
-  ".cm-scroller:hover::-webkit-scrollbar-thumb": {
-    backgroundColor: "var(--app-scroll-thumb)",
   },
   ".cm-scroller::-webkit-scrollbar-thumb:hover": {
     backgroundColor: "var(--app-scroll-thumb-strong)",
