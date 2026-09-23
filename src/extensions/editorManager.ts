@@ -532,6 +532,29 @@ class EditorManager {
     return this.runCommand(selectAll);
   }
 
+  /** 当前选中的文本（多选区用换行拼接）；无选区时返回空串 */
+  getSelectionText(): string {
+    const view = this.view;
+    if (view === null) return "";
+    const parts: string[] = [];
+    for (const range of view.state.selection.ranges) {
+      if (range.empty) continue;
+      parts.push(view.state.sliceDoc(range.from, range.to));
+    }
+    return parts.join("\n");
+  }
+
+  /**
+   * 用给定文本替换当前选区。
+   * 剪切传空串、粘贴传剪贴板内容，两者共用这一条路径。
+   */
+  replaceSelection(text: string): void {
+    const view = this.view;
+    if (view === null) return;
+    view.dispatch(view.state.replaceSelection(text));
+    view.focus();
+  }
+
   /** 打开搜索/替换面板 */
   openSearch(): boolean {
     return this.runCommand(openSearchPanel);

@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { About } from "./components/About";
 import { DropOverlay } from "./components/DropOverlay";
 import { Editor } from "./components/Editor";
 import { Settings } from "./components/Settings";
 import { StatusBar } from "./components/StatusBar";
 import { TabBar } from "./components/TabBar";
+import { TitleBar } from "./components/TitleBar";
 import { editorManager } from "./extensions/editorManager";
 import { getDbPath, initDb, setDbErrorHandler } from "./services/db";
 import { formatActiveTab, minifyActiveTab } from "./services/formatActions";
@@ -15,7 +17,7 @@ import {
   saveActiveTab,
   saveActiveTabAs,
 } from "./services/fileActions";
-import { installAppMenu } from "./services/menu";
+import { installWindowShortcuts } from "./services/shortcuts";
 import {
   captureWindowGeometry,
   loadTabForEditor,
@@ -137,6 +139,8 @@ function App() {
   const systemTheme = useSettingsStore((state) => state.systemTheme);
   const settingsOpen = useStatusStore((state) => state.settingsOpen);
   const setSettingsOpen = useStatusStore((state) => state.setSettingsOpen);
+  const aboutOpen = useStatusStore((state) => state.aboutOpen);
+  const setAboutOpen = useStatusStore((state) => state.setAboutOpen);
 
   // 应用主题到文档与编辑器。窗口在启动完成前是隐藏的，所以这里不会闪。
   useEffect(() => {
@@ -167,8 +171,8 @@ function App() {
         ),
       );
 
-      // 顶部原生菜单栏。失败只落到状态栏，不影响后面的启动流程。
-      await installAppMenu();
+      // 窗口级快捷键兜底：自绘菜单没有原生加速键，焦点不在编辑器时也要能用
+      disposers.push(installWindowShortcuts());
 
       // v1 的内容还在数据库里，先落到临时目录（失败的行保持原样，不丢数据）
       const migrated = await materializeLegacyContent();
@@ -239,11 +243,13 @@ function App() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-app-bg text-app-fg">
+      <TitleBar />
       <TabBar />
       <Editor />
       <StatusBar />
       <DropOverlay />
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
+      {aboutOpen && <About onClose={() => setAboutOpen(false)} />}
     </div>
   );
 }

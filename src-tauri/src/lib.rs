@@ -59,6 +59,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
+        // 剪贴板插件：自绘菜单取代原生菜单栏后，「剪切 / 复制 / 粘贴」不再有原生
+        // 预定义菜单项可用，只能自己读写剪贴板。走官方插件而不是
+        // navigator.clipboard：WebView2 对 clipboard-read 的默认处理不可靠。
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
             commands::textfile::read_text_file,
             commands::textfile::write_text_file,
