@@ -235,7 +235,7 @@ values 认不出的键直接丢掉（避免历史数据把状态带坏）。
 
 | workflow | 触发 | 做什么 | 耗时 |
 |---|---|---|---|
-| `ci.yml` | push 到 `main`（纯文档改动跳过）、PR、手动 | `pnpm install --frozen-lockfile` → `pnpm type-check` → `pnpm build` | 1~2 分钟 |
+| `ci.yml` | push 到 `main`（纯文档改动跳过）、PR、手动 | `pnpm install --frozen-lockfile` → `pnpm type-check` → `pnpm build` | 1 分钟内（首次实测 36 秒，不含排队） |
 | `release.yml` | push tag `v*`、手动 | 装 Rust + 缓存 → 对齐版本号 → `tauri-action` 构建 NSIS 安装包 → 上传工作流产物；tag 上再生成 **草稿** Release | 冷跑 12~18 分钟，缓存命中 5~8 分钟 |
 
 **为什么用 Windows runner 而不是 ubuntu**：锁文件是在 Windows 上生成的，
