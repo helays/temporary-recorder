@@ -18,10 +18,20 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2.11", features = [] }
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# 关闭 WebView2 的浏览器加速键需要直接使用 WebView2 的 COM 接口。
+# 版本必须与 tauri 依赖树内的保持一致（见 Cargo.lock：
+# webview2-com 0.38.2 / windows-core 0.61.2），否则 ICoreWebView2* 类型
+# 与 tauri 暴露的 controller() 不是同一个类型，编译不过。
+# 这也正是把 tauri 固定到次版本 2.11 的原因：tauri 官方文档明确提示
+# webview2-com 可能随 tauri 的次版本更新而变化。
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.38"
+windows-core = "0.61"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
