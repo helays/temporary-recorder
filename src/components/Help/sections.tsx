@@ -30,7 +30,7 @@ const SHORTCUTS: ReadonlyArray<readonly [string, string]> = [
   ["Ctrl+1 … Ctrl+9", "切到第 N 个标签"],
   ["Ctrl+F", "搜索"],
   ["Ctrl+R", "替换（同一个面板，面板里带替换输入框）"],
-  ["Ctrl+G", "转到行（可写「行」或「行:列」）"],
+  ["Ctrl+G", "转到行（可写「行」或「行:列」；Ctrl+Alt+G 同样可用）"],
   ["F3 / Shift+F3", "下一个 / 上一个匹配"],
   ["Shift+Alt+F", "格式化（按内容自动识别 JSON / YAML）"],
   ["Shift+Alt+M", "压缩（仅 JSON）"],
