@@ -19,6 +19,11 @@
   --app-danger: #cf222e;
   --app-warn: #9a6700;
   --app-hover: rgba(0, 0, 0, 0.06);
+  /*
+   * 选中标签的填充色。刻意比栏底色（--app-panel #f6f7f9）深一档：
+   * 选中态不使用描边，全靠这个背景色区分，而编辑器白底与栏底只差 4%，太淡。
+   */
+  --app-tab-active: #dfe3e8;
   color-scheme: light;
 }
 
@@ -32,6 +37,8 @@
   --app-danger: #e06c75;
   --app-warn: #e5c07b;
   --app-hover: rgba(255, 255, 255, 0.08);
+  /* 深色主题同样比栏底（#21252b）更深一档；与悬停色（比栏底更亮）方向相反，天然可分 */
+  --app-tab-active: #16191e;
   color-scheme: dark;
 }
 
@@ -46,6 +53,7 @@
   --color-app-danger: var(--app-danger);
   --color-app-warn: var(--app-warn);
   --color-app-hover: var(--app-hover);
+  --color-app-tab-active: var(--app-tab-active);
 }
 
 html,

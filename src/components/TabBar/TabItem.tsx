@@ -33,9 +33,9 @@ export function TabItem({ tab, active, onActivate, onClose, onRename }: TabItemP
 
   return (
     <div
-      className={`group flex h-[22px] max-w-48 items-center gap-1.5 rounded-full px-2.5 text-xs select-none ${
+      className={`group flex h-5 max-w-48 items-center gap-1.5 rounded-full px-2.5 text-xs leading-none select-none ${
         active
-          ? "bg-app-bg text-app-fg shadow-sm ring-1 ring-app-border"
+          ? "bg-app-tab-active text-app-fg"
           : "text-app-muted hover:bg-app-hover hover:text-app-fg"
       }`}
       onMouseDown={(event) => {
@@ -63,7 +63,7 @@ export function TabItem({ tab, active, onActivate, onClose, onRename }: TabItemP
               cancel();
             }
           }}
-          className="h-[18px] w-28 rounded-full border border-app-border bg-app-bg px-1.5 text-xs text-app-fg outline-none"
+          className="h-4 w-28 rounded-full border border-app-border bg-app-bg px-1.5 text-xs leading-none text-app-fg outline-none"
         />
       ) : (
         <span className="truncate">{tab.title}</span>

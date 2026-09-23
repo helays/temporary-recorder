@@ -158,7 +158,7 @@ export function TabBar() {
         type="button"
         title="新建标签 (Ctrl+N / Ctrl+T)"
         onClick={() => void createTab()}
-        className="my-auto mr-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-sm leading-none text-app-muted hover:bg-app-hover hover:text-app-fg"
+        className="my-auto mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-sm leading-none text-app-muted hover:bg-app-hover hover:text-app-fg"
       >
         +
       </button>
