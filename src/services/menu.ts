@@ -217,11 +217,20 @@ export async function installAppMenu(): Promise<void> {
         },
         separator(),
         // 剪贴板交给原生项：它把系统命令转发给 WebView，CodeMirror 依赖的
-        // 剪贴板事件照常触发。这几项自带 Windows 标准快捷键。
+        // 剪贴板事件照常触发。这三项自带 Windows 标准快捷键。
         { item: "Cut", text: "剪切" },
         { item: "Copy", text: "复制" },
         { item: "Paste", text: "粘贴" },
-        { item: "SelectAll", text: "全选" },
+        // 全选反过来：CodeMirror 自己有命令，走 action 就不必依赖原生命令转发，
+        // 少一个「按了 Ctrl+A 没反应」的失败可能。
+        {
+          id: "menu-select-all",
+          text: "全选",
+          accelerator: "CmdOrCtrl+A",
+          action: action(() => {
+            editorManager.selectAll();
+          }),
+        },
         separator(),
         {
           id: "menu-find",

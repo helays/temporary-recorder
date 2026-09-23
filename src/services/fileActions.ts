@@ -110,6 +110,25 @@ function findPristineTempTab(): PristineTab | null {
 }
 
 /**
+ * 删除回收掉的空白标签留下的临时文件。
+ *
+ * `closeTab` 内部的 flush 只是「发起写入」而不是等它写完（见 editorManager.flushTab），
+ * 所以严格来说删除与那次写入存在抢序：写入经由同一条 IPC 通道且发起得更早，
+ * 正常顺序是「先写完、后删除」。万一反过来（写入把文件又建了回来），
+ * 这里确认一次再删，避免在临时目录里留下一个空文件。
+ */
+async function removeTempFile(path: string): Promise<void> {
+  try {
+    await deleteFile(path);
+    const status = await pathStatus(path);
+    if (status.exists) await deleteFile(path);
+  } catch (err) {
+    // 删不掉不算失败：文件留在临时目录里，可以在设置里手动清理
+    console.error("[file] 清理空白标签的临时文件失败:", path, err);
+  }
+}
+
+/**
  * 批量打开（拖拽、多选）。
  * 单个文件成功时不打扰用户；有失败时保留第一条具体原因，
  * 免得状态栏上只剩一个数字、看不出到底哪儿出了问题。
@@ -158,13 +177,7 @@ export async function openPathsIntoNewTab(paths: string[]): Promise<void> {
 
   if (pristine !== null && opened > 0) {
     await useTabsStore.getState().closeTab(pristine.id);
-    if (pristine.filePath !== null) {
-      try {
-        await deleteFile(pristine.filePath);
-      } catch (err) {
-        console.error("[file] 清理空白标签的临时文件失败:", pristine.filePath, err);
-      }
-    }
+    if (pristine.filePath !== null) await removeTempFile(pristine.filePath);
   }
 
   // 一次拖入多个时停在第一个上，位置可预期

@@ -127,7 +127,7 @@ C:\Users\helei\AppData\Roaming\com.temporary.recorder\recorder.db
 |---|---|
 | 文件 | 新建标签 `Ctrl+N`、打开… `Ctrl+O`、保存 `Ctrl+S`、另存为… `Ctrl+Shift+S`、关闭当前标签 `Ctrl+W`、退出 |
 | 设置 | 打开设置… `Ctrl+,`、在资源管理器中打开临时目录、清理未使用的临时文件 |
-| 编辑 | 撤销 `Ctrl+Z`、重做 `Ctrl+Shift+Z`、剪切 / 复制 / 粘贴 / 全选（系统默认快捷键）、查找 `Ctrl+F`、替换 `Ctrl+H` |
+| 编辑 | 撤销 `Ctrl+Z`、重做 `Ctrl+Shift+Z`、剪切 / 复制 / 粘贴（原生项，系统默认快捷键）、全选 `Ctrl+A`、查找 `Ctrl+F`、替换 `Ctrl+H` |
 | 查看 | 格式化 `Shift+Alt+F`、压缩 JSON `Shift+Alt+M`、主题 ▸ 跟随系统 / 浅色 / 深色（带勾选） |
 | 帮助 | 关于 闪记、在资源管理器中打开数据目录 |
 
@@ -370,10 +370,13 @@ Windows 的菜单快捷键在消息循环里**先于**焦点控件处理。菜�
 `accelerator`，那个按键就由菜单接管，CodeMirror 里同名的 keymap 绑定实际上不再触发。
 本项目里这可以接受（菜单动作调用的是同一条函数），但有两点必须注意：
 
-- 撤销 / 重做如果图省事用原生 `Undo` / `Redo` 菜单项，会与 CodeMirror 的历史栈脱节、
-  变成空操作。必须用 `action` 回调调 `@codemirror/commands` 的 `undo` / `redo`。
-- 剪贴板反而**应该**用原生预定义项（`Cut` / `Copy` / `Paste` / `SelectAll`）：
-  它们把系统命令转发给 WebView，CodeMirror 依赖的 DOM 剪贴板事件照常触发。
+- 撤销 / 重做 / 全选如果图省事用原生 `Undo` / `Redo` / `SelectAll` 菜单项，
+  就会与 CodeMirror 脱节：撤销会变成空操作。这三个都用 `action` 回调调
+  `@codemirror/commands` 的 `undo` / `redo` / `selectAll`。
+- 剪切 / 复制 / 粘贴反过来**应该**用原生预定义项（`Cut` / `Copy` / `Paste`）：
+  它们把系统命令转发给 WebView，CodeMirror 依赖的 DOM 剪贴板事件照常触发；
+  自己用 `navigator.clipboard` 重写反而要面对 WebView2 的剪贴板权限问题
+  （`clipboard-read` 在没挂权限处理器时可能直接被拒）。
 
 排查菜单问题还有个实用手段：WebView 的 `console.*` **不会**出现在终端里，
 所以「菜单到底建出来没有」不能靠日志确认——直接问 Windows 要窗口的 `HMENU`
@@ -482,7 +485,7 @@ temporary-recorder      27.0 MB 工作集
 
 - **把文件拖进窗口能否打开**（OS 级拖放无法程序化合成）：多文件、目录、超大文件、
   已打开过的文件各试一次
-- **菜单项点击是否都能正常工作**，尤其是 `编辑 ▸ 剪切 / 复制 / 粘贴 / 全选` 这四项
+- **菜单项点击是否都能正常工作**，尤其是 `编辑 ▸ 剪切 / 复制 / 粘贴` 这三项
   ——它们用的是原生预定义项，若与 CodeMirror 协同异常（复制粘贴失效），
   退路是改用 `action` 回调 + 剪贴板 API 自行实现
 - 实际键盘输入后的自动保存（0.8s）与光标/滚动恢复
