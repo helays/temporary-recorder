@@ -33,10 +33,10 @@ export function TabItem({ tab, active, onActivate, onClose, onRename }: TabItemP
 
   return (
     <div
-      className={`group flex h-full max-w-48 items-center gap-1 border-r border-app-border px-3 text-xs select-none ${
+      className={`group flex h-[22px] max-w-48 items-center gap-1.5 rounded-full px-2.5 text-xs select-none ${
         active
-          ? "bg-app-bg text-app-fg"
-          : "bg-app-panel text-app-muted hover:bg-app-hover"
+          ? "bg-app-bg text-app-fg shadow-sm ring-1 ring-app-border"
+          : "text-app-muted hover:bg-app-hover hover:text-app-fg"
       }`}
       onMouseDown={(event) => {
         if (editing) return;
@@ -63,7 +63,7 @@ export function TabItem({ tab, active, onActivate, onClose, onRename }: TabItemP
               cancel();
             }
           }}
-          className="w-32 rounded-sm border border-app-border bg-app-bg px-1 text-xs text-app-fg outline-none"
+          className="h-[18px] w-28 rounded-full border border-app-border bg-app-bg px-1.5 text-xs text-app-fg outline-none"
         />
       ) : (
         <span className="truncate">{tab.title}</span>
@@ -77,7 +77,9 @@ export function TabItem({ tab, active, onActivate, onClose, onRename }: TabItemP
           event.stopPropagation();
           onClose(tab.id);
         }}
-        className="rounded-sm px-1 leading-none text-app-muted opacity-0 group-hover:opacity-100 hover:bg-app-hover hover:text-app-fg focus:opacity-100"
+        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[13px] leading-none text-app-muted hover:bg-app-hover hover:text-app-fg focus:opacity-100 ${
+          active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        }`}
       >
         ×
       </button>

@@ -53,7 +53,7 @@ function SortableTabItem({
       data-tab-id={tab.id}
       {...attributes}
       {...listeners}
-      className="flex shrink-0"
+      className="flex shrink-0 items-center"
     >
       <TabItem
         tab={tab}
@@ -126,7 +126,7 @@ export function TabBar() {
   };
 
   return (
-    <div className="flex h-9 shrink-0 items-stretch border-b border-app-border bg-app-panel">
+    <div className="flex h-7 shrink-0 items-stretch border-b border-app-border bg-app-panel">
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -158,7 +158,7 @@ export function TabBar() {
         type="button"
         title="新建标签 (Ctrl+N / Ctrl+T)"
         onClick={() => void createTab()}
-        className="shrink-0 border-l border-app-border px-3 text-sm text-app-muted hover:bg-app-hover hover:text-app-fg"
+        className="my-auto mr-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-sm leading-none text-app-muted hover:bg-app-hover hover:text-app-fg"
       >
         +
       </button>
