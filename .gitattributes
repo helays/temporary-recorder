@@ -1,0 +1,7 @@
+# 统一以 LF 存入仓库，避免 Windows 侧 CRLF 混入
+* text=auto eol=lf
+
+# 二进制资源不做行尾转换
+*.png binary
+*.ico binary
+*.icns binary
