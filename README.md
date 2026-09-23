@@ -209,9 +209,16 @@ C:\Users\helei\AppData\Roaming\com.temporary.recorder\recorder.db
 
 ## 快捷键
 
-下面这些大多同时出现在顶部菜单栏里（菜单项右侧会显示对应按键）。
-注意**菜单的快捷键是窗口级**的：同一个按键如果菜单里也绑了，就会由菜单接管，
-CodeMirror 里的同名绑定保留为兜底。
+下面这些大多同时出现在顶部菜单里（菜单项右侧会显示对应按键）。
+
+按键有**两条**处理路径，按设计互为兜底：
+
+1. **CodeMirror 的 keymap**（`src/extensions/keymap.ts`）——焦点在编辑器里时走这条。
+2. **窗口级监听**（`src/services/shortcuts.ts`）——焦点在标签栏 / 状态栏 / 按钮上时走这条。
+
+两者不会重复触发：CodeMirror 处理过的按键会 `preventDefault()`，窗口级监听看到
+`event.defaultPrevented` 就直接跳过。这也是自绘菜单取代原生菜单栏后必须补的一层——
+原生菜单栏的加速键是窗口级的，自绘菜单没有这个能力。
 
 | 快捷键 | 功能 |
 |--------|------|
@@ -232,16 +239,23 @@ CodeMirror 里的同名绑定保留为兜底。
 | `Ctrl+D` | 选下一个相同词（CodeMirror 默认行为） |
 | `Alt+Click` | 多光标（CodeMirror 默认行为） |
 
-标签重命名：双击标签名（只改标签显示名，不改文件名）。
+其它界面操作：
+
+- 标签重命名：双击标签名（只改标签显示名，不改文件名）
+- 移动窗口：拖动标题栏空白处；**双击标题栏空白处**最大化 / 还原
+- 缩放窗口：拖四条边或四个角（无边框但保留了缩放边框，见踩坑 #14）
+- 菜单键盘操作：`←` / `→` 换顶级菜单，`↑` / `↓` 移动高亮，`Enter` 执行，`Esc` 关闭
 
 ## 目录结构
 
 ```
 src/
-├── components/          # TabBar / Editor / StatusBar / Settings / DropOverlay
+├── components/          # TitleBar（标题行 + 菜单 + 窗口按钮）/ TabBar / Editor
+│                        # StatusBar / Settings / About / DropOverlay
 ├── stores/              # Zustand：标签元数据、激活标签、设置、状态栏
 ├── services/            # 数据库、文件 I/O、格式化、会话恢复、窗口几何、
-│                        # 菜单栏（menu.ts）、临时文件清理（tempCleanup.ts）
+│                        # 菜单数据（menu.ts）、剪贴板（clipboard.ts）、
+│                        # 窗口级快捷键（shortcuts.ts）、临时文件清理（tempCleanup.ts）
 ├── extensions/          # CodeMirror 集成（editorManager、主题、快捷键、语言、YAML 缩进）
 ├── utils/               # 纯函数（防抖、换行归一、JSON 错误定位、id）
 └── types/               # TypeScript 类型
@@ -392,23 +406,80 @@ Windows 上的文件拖放由 Tauri/wry 接管，前端只需监听
 另外 `over` 事件只带坐标、且拖拽期间持续高频触发，所以遮罩只在
 `enter` / `leave` / `drop` 时更新状态，`over` 一次 `setState` 都不做。
 
-### 13. 菜单快捷键是窗口级的，会盖住 CodeMirror 的绑定
+### 13. 自绘菜单取代原生菜单栏后，快捷键必须自己补一层
 
-Windows 的菜单快捷键在消息循环里**先于**焦点控件处理。菜单项一旦写了
-`accelerator`，那个按键就由菜单接管，CodeMirror 里同名的 keymap 绑定实际上不再触发。
-本项目里这可以接受（菜单动作调用的是同一条函数），但有两点必须注意：
+早期版本用的是 Windows 原生菜单栏。原生菜单的加速键由系统在**窗口层**处理，
+所以焦点在哪都能用。换成自绘菜单后这个能力没有了：`Ctrl+N` / `Ctrl+O` / `Ctrl+S` 等
+只剩 CodeMirror 的 keymap 一条路径，焦点一旦离开编辑器（点了标签栏、状态栏按钮）就失效。
 
-- 撤销 / 重做 / 全选如果图省事用原生 `Undo` / `Redo` / `SelectAll` 菜单项，
-  就会与 CodeMirror 脱节：撤销会变成空操作。这三个都用 `action` 回调调
-  `@codemirror/commands` 的 `undo` / `redo` / `selectAll`。
-- 剪切 / 复制 / 粘贴反过来**应该**用原生预定义项（`Cut` / `Copy` / `Paste`）：
-  它们把系统命令转发给 WebView，CodeMirror 依赖的 DOM 剪贴板事件照常触发；
-  自己用 `navigator.clipboard` 重写反而要面对 WebView2 的剪贴板权限问题
-  （`clipboard-read` 在没挂权限处理器时可能直接被拒）。
+补法是**两层**而不是替换：保留 CodeMirror keymap（编辑器内优先），再加一个窗口级
+`keydown` 监听，并且用 `event.defaultPrevented` 判断——CodeMirror 处理过的按键会
+`preventDefault()`，窗口级监听看到就直接跳过，不会执行两次。
+
+另外两条经验：
+
+- 撤销 / 重做 / 全选必须调 `@codemirror/commands` 的 `undo` / `redo` / `selectAll`。
+  用浏览器的原生行为会与 CodeMirror 的历史栈脱节，撤销会变成空操作。
+- 剪切 / 复制 / 粘贴**不能**用 `navigator.clipboard`：WebView2 对 `clipboard-read`
+  的默认处理不可靠（会直接拒绝）。见 #15。
 
 排查菜单问题还有个实用手段：WebView 的 `console.*` **不会**出现在终端里，
 所以「菜单到底建出来没有」不能靠日志确认——直接问 Windows 要窗口的 `HMENU`
-再把菜单项读回来（`runtime/check-menu.ps1` 就是干这个的）。
+（`runtime/check-menu.ps1`），或者把窗口渲染成字符画看布局（`runtime/check-layout.ps1`）。
+
+### 14. 无边框窗口：`decorations: false` 不等于「裸窗」
+
+要「图标 + 菜单 + 窗口按钮同一行」，就必须去掉 Windows 标题栏。这时常见的担心是
+「无边框会不会连阴影、圆角和拖边缩放都一起没了」。**在 Tauri v2 / tao 0.35 上不会**，
+但原因不明显，值得记下来——它决定了两件事能不能省：
+
+- tao 处理无边框的方式不是抹掉窗口样式，而是**保留 `WS_CAPTION` / `WS_THICKFRAME`，
+  只在 `WM_NCCALCSIZE` 里返回一个内缩的客户区**，内缩量 =
+  `SM_CXSIZEFRAME + SM_CXPADDEDBORDER`（本机 8px），顶部在 Win11 上是
+  `round(dpi/96)`（96 DPI 下 1px，注释里写明「顶边留 0 会让最上面 1-2 行像素被遮住」）。
+  于是 DWM 依然画阴影与圆角，左右下三边依然能被 `DefWindowProc` 命中为缩放边框。
+- **顶边**因为只有 1px，tao 自己在 `WM_NCHITTEST` 里补了一个 `HTTOP`。
+  也就是说四条边都能拖拽缩放，不需要社区插件。
+
+实测（`runtime/check-chrome.ps1`，与本机 tao 源码推出的数字一致）：
+
+```
+window rect  916x659      （改之前 916x709，少的 50px = 标题栏 31 + 原生菜单 19）
+client rect  900x650      （完全没变 —— 内容区尺寸不受影响，不会重排）
+frame insets left=8 top=1 right=8 bottom=8
+WS_THICKFRAME  True       GetMenu  NULL
+```
+
+代价只有一个：**失去 Win11「贴靠布局」**（悬停最大化按钮弹出的布局选择），
+因为那个按钮现在是自绘的。`Win+Z` 与 `Win+←/→` 仍然可用。
+
+### 15. 剪贴板插件的默认权限集是**空的**
+
+`tauri-plugin-clipboard-manager` 的 `permissions/default.toml` 里
+`permissions = []`，注释说明理由是「剪贴板本身有风险，读写应当由应用显式决定」。
+所以 `capabilities/default.json` 里的 `clipboard-manager:default` 等于什么都没给，
+必须显式写：
+
+```
+clipboard-manager:allow-read-text
+clipboard-manager:allow-write-text
+```
+
+写错或漏写的后果是运行期才暴露（调用被 ACL 拒绝）。好消息是**权限标识符写错会在构建期
+就被 tauri-build 拦下**（它会拿插件清单校验 capability），所以这类错误不会悄悄溜到运行时。
+
+### 16. `data-tauri-drag-region` 的三个细节
+
+自绘标题栏的拖动靠 Tauri 注入的脚本（`src/window/scripts/drag.js`），有三点不查源码就容易踩：
+
+- 属性值有**语义差别**：裸写 / `"true"` = 只有点到该元素本身才拖；
+  **`"deep"` = 子树内任意位置都能拖**；`"false"` = 这里禁止拖（并向上屏蔽）。
+  标题栏整行用 `deep` 最省事。
+- **`<button>` / `<a>` / `role="menuitem"` 等可点元素会自动阻断拖动**，
+  所以菜单按钮和窗口按钮不用额外处理；但反过来说，**菜单下拉面板必须显式写
+  `data-tauri-drag-region="false"`**，否则点面板的空白处会把窗口拖走。
+- **双击拖动区切换最大化是脚本自带的**（`e.detail === 2` 时发
+  `internal_toggle_maximize`），不需要自己写 `onDoubleClick`。
 
 ## 验收辅助脚本（`runtime/`，不提交）
 
@@ -422,7 +493,10 @@ Windows 的菜单快捷键在消息循环里**先于**焦点控件处理。菜�
 | `check-libs.mjs` | js-yaml v5 的 `loadAll` / `dump` 行为核对 |
 | `check-perms.mjs` | 列出 `core:window:default` 实际授予的权限 |
 | `check-window.ps1` | 枚举应用窗口，输出实际尺寸/位置/可见性 |
-| `check-menu.ps1` | 从窗口的 `HMENU` 读回原生菜单栏结构与每一项文字（验证菜单是否真的建出来） |
+| `check-menu.ps1` | 从窗口的 `HMENU` 读回原生菜单栏结构与每一项文字（验证原生菜单已移除 / 是否还在） |
+| `check-chrome.ps1` | 量窗口外壳：标题栏是否还在、原生菜单是否存在、非客户区 insets、`WS_THICKFRAME` 是否仍可缩放 |
+| `check-layout.ps1` | 把窗口渲染成字符画（`PrintWindow` + 降采样），用于在看不到画面的情况下核对布局 |
+| `check-tabbar.ps1` | 标签栏高度、全高分割线数量、任一行内最长竖直线段、胶囊轮廓包围盒 |
 | `make-icon.ps1` | 生成 `icon-source.png`（1024 圆角蓝底 + 白色闪电），供 `pnpm tauri icon` 使用 |
 | `reinstall-elevated.ps1` | 提权执行：静默卸载旧名安装 → 清理残留（目录/快捷方式/注册表）→ 静默安装新版 |
 | `run-elevated.ps1` | 上面那个脚本的包装器：提权进程有自己的控制台，输出要靠它重定向进 `reinstall.log` |
@@ -439,6 +513,11 @@ Windows 的菜单快捷键在消息循环里**先于**焦点控件处理。菜�
 node runtime/verify-db.mjs
 node runtime/check-utils.mjs
 node runtime/check-json-error.mjs
+
+# 界面与窗口（会短暂启动一次应用，看完自己关掉）
+& .\runtime\check-chrome.ps1      # 标题栏 / 原生菜单 / 缩放边框
+& .\runtime\check-tabbar.ps1      # 标签栏高度与分割线
+& .\runtime\check-layout.ps1      # 把窗口渲染成字符画看布局
 ```
 
 ## 性能实测
@@ -447,11 +526,14 @@ node runtime/check-json-error.mjs
 
 | 指标 | 目标 | 实测 | 结论 |
 |------|------|------|------|
-| 主程序体积 | < 15 MB | **6.34 MB** | ✅ |
-| NSIS 安装包 | — | 2.36 MB | — |
-| 冷启动到窗口可见 | < 1.5 s | **0.56 s** | ✅ |
-| 空闲内存（应用自身进程） | < 80 MB | **27.0 MB** | ✅ |
-| 空闲内存（含 WebView2 辅助进程） | < 80 MB | **约 359 MB** | ❌ 超出 |
+| 主程序体积 | < 15 MB | **6.65 MB** | ✅ |
+| NSIS 安装包 | — | 2.48 MB | — |
+| 冷启动到窗口可见 | < 1.5 s | **0.50 s** | ✅ |
+| 空闲内存（应用自身进程） | < 80 MB | **25.9 MB** | ✅ |
+| 空闲内存（含 WebView2 辅助进程） | < 80 MB | **约 364 MB** | ❌ 超出 |
+
+体积比上一版略增（6.34 → 6.65 MB，安装包 2.36 → 2.48 MB），来自为自绘菜单引入的
+剪贴板插件；标题行与标签栏改成自绘后前端产物只增加约 1 KB。
 
 **关于内存指标的说明（重要）：**
 
@@ -460,9 +542,9 @@ Tauri 复用系统 WebView2，运行时除应用自身进程外还会拉起 6 �
 启动 8 秒后实测：
 
 ```
-temporary-recorder      27.0 MB 工作集
-6 x msedgewebview2     332.3 MB 工作集
-合计                   359.4 MB 工作集
+temporary-recorder      25.9 MB 工作集
+6 x msedgewebview2     338.0 MB 工作集
+合计                   363.9 MB 工作集
 ```
 
 也就是说：
@@ -471,7 +553,7 @@ temporary-recorder      27.0 MB 工作集
 - 若指**含 WebView2 全部辅助进程的总和**，则约 359 MB，**超出 80 MB 的目标**。
 
 这部分开销来自 WebView2 运行时本身，不是本项目代码造成的：前端产物仅
-770 KB（gzip 244 KB），CodeMirror 与 React 都常驻内存但占比很小。
+772 KB（JS 752 KB + CSS 15 KB + 图标 5 KB），CodeMirror 与 React 都常驻内存但占比很小。
 在「Tauri v2 + 系统 WebView2」这一技术选型下（本项目技术栈已定，不得更改），
 把含 WebView2 辅助进程的总内存压到 80 MB 以下并不现实。
 选择 Tauri 而非 Electron 的收益主要体现在**体积**（6 MB vs 通常 80 MB+）上。
@@ -501,21 +583,44 @@ temporary-recorder      27.0 MB 工作集
 - WebView2 浏览器加速键确实被关闭（启动日志确认整条 COM 调用链成功）
 - 格式化所依赖的第三方库行为、JSON 错误定位、防抖与换行归一语义
 - JSON / YAML 换行缩进（含 YAML 兜底与「不干扰语言自身规则」的回归用例）
-- **原生菜单栏真的建出来了**：WebView 的 `console.*` 不会出现在终端里，所以这条
-  不能靠日志确认。改为从窗口取 `HMENU` 再把菜单项读回来（`runtime/check-menu.ps1`），
-  实测得到 5 个顶级菜单，顺序与内容完全符合预期：
-  `文件 / 设置 / 编辑 / 查看 / 帮助`，各菜单项的加速键文字（`Ctrl+N`、`Ctrl+Shift+S`、
-  `Shift+Alt+F`…）齐全，`主题` 子菜单三项中「跟随系统」处于勾选态（与默认设置一致）
+- ~~原生菜单栏真的建出来了~~ → **已改为自绘菜单**。当初那轮验证的方法是
+  「从窗口取 `HMENU` 再把菜单项读回来」（`runtime/check-menu.ps1`），因为 WebView 的
+  `console.*` 不会出现在终端里、菜单建没建出来无法靠日志确认。现在同一脚本用来反向确认
+  **原生菜单栏确实已经移除**（`GetMenu` 返回 `NULL`）。
 - 更名生效：窗口标题为 `闪记`；release 目录下产出 `闪记_0.1.0_x64-setup.exe`
 - 启动一次 release 版后正常退出，库与临时文件均无变化（identifier 未改，数据路径不变）
+- **标签栏改版**（`runtime/check-tabbar.ps1`，改前 / 改后对照，都是硬数字）：
+  标签栏内容高 `35px → 27px`；栏内**全高竖向分割线 `2 → 0` 条**
+  （改前是列 98 的标签 `border-r`、列 873 的 `+` 按钮 `border-l`）；
+  任一行内最长竖直线段 `35px → 6px`（只剩圆弧，不再有直边）；
+  胶囊轮廓包围盒 `x=8..96, y 跨 24px`（= 22px 胶囊 + 上下各 1px 描边）。
+  另外产物层面可证：整份 CSS 里已不存在 `.border-r` / `.border-l`。
+- **无边框窗口**（`runtime/check-chrome.ps1`）：窗口 `916x709 → 916x659`
+  （少的 50px = 标题栏 31 + 原生菜单 19），客户区 `900x650` 分毫未变；
+  非客户区 insets `left=8 top=1 right=8 bottom=8`，与 tao 源码的
+  `SM_CXSIZEFRAME+SM_CXPADDEDBORDER` / Win11 顶边 1px 一致；
+  `WS_THICKFRAME` 仍为 True（仍可拖边缩放）；`GetMenu` 为 `NULL`（原生菜单栏已彻底移除）。
+- **布局分带**（`runtime/check-tabbar.ps1` 全高扫描）：`y=1..32` 标题行（32px，唯一一行
+  图标 + 5 菜单 + 3 窗口按钮）→ `y=33..60` 标签栏（28px）→ 编辑器 → `y=628..650` 状态栏（23px）。
+  字符画（`runtime/check-layout.ps1`）可直接读出这四带。
+- 无边框改造后**几何零漂移**：启动-关闭连续 3 轮，均为 `900x650 @ (502,175)`
+- 剪贴板插件的权限标识符写错会**在构建期**被 tauri-build 拦下（本轮借此确认了
+  `clipboard-manager:allow-read-text` / `allow-write-text` 正确）
 
 需要人工在界面上确认（无法脚本化）：
 
 - **把文件拖进窗口能否打开**（OS 级拖放无法程序化合成）：多文件、目录、超大文件、
   已打开过的文件各试一次
-- **菜单项点击是否都能正常工作**，尤其是 `编辑 ▸ 剪切 / 复制 / 粘贴` 这三项
-  ——它们用的是原生预定义项，若与 CodeMirror 协同异常（复制粘贴失效），
-  退路是改用 `action` 回调 + 剪贴板 API 自行实现
+- **自绘菜单的交互**：点击展开 / 再点关闭、悬停切换顶级菜单、点外部关闭、`Esc` 关闭、
+  `←` `→` `↑` `↓` `Enter`、`主题` 子菜单与勾选、`关于 闪记` 弹窗
+- **菜单各项是否都能生效**，尤其是 `编辑 ▸ 剪切 / 复制 / 粘贴`
+  （它们现在走剪贴板插件，而不是原生预定义项）
+- **窗口操作**：拖标题栏空白处移动、拖四条边缩放、双击标题栏最大化 / 还原、
+  最小化 / 最大化 / 关闭三个按钮
+- **深色主题下标题行与窗口边缘的观感**——无边框后窗口保留 8px 非客户区边框带
+  （tao 用它换阴影、圆角与缩放边框），浅色主题下它是 1px 白边；若在深色主题下显得突兀，
+  退路是改用 `transparent: true` + 自绘圆角与阴影（复杂度明显上升），或退回带标题栏
+- 焦点不在编辑器时快捷键是否也生效（窗口级兜底的那一层）
 - 实际键盘输入后的自动保存（0.8s）与光标/滚动恢复
 - 打开 / 保存 / 另存为的对话框流程（其依赖的文件 I/O 与权限已单独验证）
 - 标签新建/关闭/重命名/拖拽排序的交互手感、标签栏滚轮横向滚动
