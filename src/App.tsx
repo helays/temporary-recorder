@@ -13,6 +13,7 @@ import { formatActiveTab, minifyActiveTab } from "./services/formatActions";
 import { pruneLanguageOverrides } from "./services/languageActions";
 import { materializeLegacyContent } from "./services/legacyMigration";
 import { saveTabContent } from "./services/contentStore";
+import { startOpenRequestWatcher } from "./services/openRequests";
 import {
   openFileIntoNewTab,
   saveActiveTab,
@@ -217,6 +218,10 @@ function App() {
       // 手动指定过的语言要落在已存在的标签上，其余的键清掉
       pruneLanguageOverrides();
       if (cancelled) return;
+
+      // 系统交过来的文件（双击 / 打开方式 / 另一个实例转交），开成新标签。
+      // 放在标签就绪之后：空白标签的回收依赖「整个会话只有一个标签」。
+      disposers.push(await startOpenRequestWatcher());
 
       disposers.push(await startWindowGeometryTracking());
       disposers.push(await installCloseHandler());

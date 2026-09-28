@@ -57,6 +57,16 @@ fn disable_browser_accelerator_keys(window: &tauri::WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // 待打开队列要在插件之前注册：单实例插件的回调随时可能用到它
+        .manage(commands::launch::PendingOpenPaths::default())
+        // 单实例插件必须是**第一个**注册的插件：插件按添加顺序初始化，
+        // 排在它前面的插件会在「发现已有实例、准备退出」之前先跑一遍初始化工作。
+        //
+        // 第二个进程只做一件事：把命令行参数（也就是被双击的文件路径）
+        // 交给已在运行的实例，然后自己退出，不创建窗口、不碰数据库。
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            commands::launch::enqueue(app, &argv, &cwd);
+        }))
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         // 剪贴板插件：自绘菜单取代原生菜单栏后，「剪切 / 复制 / 粘贴」不再有原生
@@ -71,8 +81,14 @@ pub fn run() {
             commands::textfile::list_dir,
             commands::textfile::ensure_dir,
             commands::textfile::reveal_path,
+            commands::launch::take_pending_open_paths,
+            commands::launch::open_default_apps_settings,
         ])
         .setup(|app| {
+            // 本进程启动时带的命令行参数（双击文件 / 拖到 exe 上）进队列，
+            // 前端在会话恢复完成后来取——那时标签列表才是可用的。
+            commands::launch::enqueue_from_env(app.handle());
+
             #[cfg(windows)]
             {
                 use tauri::Manager;
@@ -81,8 +97,6 @@ pub fn run() {
                     None => eprintln!("[webview] 未找到 main 窗口，跳过加速键设置"),
                 }
             }
-            #[cfg(not(windows))]
-            let _ = app;
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -94,6 +94,27 @@ pnpm tauri build      # 打包 release 安装包
   改功能时两处一起改（README 的快捷键表 / 菜单表 / 语法高亮与跳转三节是同一份事实）。
 - 「关于」与「使用说明」刻意分开：关于讲版本、数据目录与简介，帮助讲怎么用。
 
+### 双击打开：命令行参数 + 单实例
+
+Windows 写下的关联命令是 `"<exe>" "%1"`，被双击的文件就是**第 1 个命令行参数**——
+不读它，「设为默认程序」就完全没有效果。这是「设了默认程序却没反应」的第一层原因；
+第二层是当时没有单实例：闪记已在运行时，第二个进程的 WebView2 根本起不来，
+只剩一个空白窗口（实测该进程连一个 `msedgewebview2.exe` 子进程都没有）。
+
+现在的链路（`src-tauri/src/commands/launch.rs` + `src/services/openRequests.ts`）：
+
+- 单实例插件必须**第一个**注册（插件按添加顺序初始化）；第二个进程只把 argv 转交给
+  既有实例（并把它调到前台），然后自己退出——不建窗口、不碰数据库。
+- 参数筛选是个纯函数：跳过 `argv[0]` 与 `-` 开关、去掉残留引号、相对路径按 cwd 解析、
+  **只保留真实存在的路径**（不存在的参数多半不是文件，留给前端只会变成状态栏噪音）。
+- 路径进 Rust 的待打开队列，同时 emit 一个 `open-paths` 事件；**队列是唯一真源，
+  事件只是唤醒信号**。于是「事件早于前端订阅」（首启必然如此，事件被丢掉但路径还在队列里）
+  与「事件晚于本次取队列」两种时序都不丢文件，前端也就不需要任何去重逻辑。
+- 前端在会话恢复、标签就绪**之后**才取队列并调用既有的 `openPathsIntoNewTab`：
+  空白标签的回收（`findPristineTempTab`）依赖「整个会话只有一个标签」这个前提，
+  取早了会和 `setInitial` 抢状态。文件大小上限、已打开即切过去、目录跳过、状态栏汇总
+  全部复用同一条打开路径，没有第二套逻辑。
+
 ### 滚动条
 
 - `index.css` 里一组**全局细滚动条**（8px、透明轨道、圆角拇指、隐藏两端箭头）。
@@ -275,6 +296,9 @@ git push origin v0.1.0
   也就是说 CI 只保证「类型能过、前端能构建、安装包能出」，界面的像素级断言仍只在本地跑
   （`runtime/check-*.ps1`、`check-*.mjs`）。若以后想让 CI 也跑它们，需要把它们挪到可提交的
   目录（如 `tools/`）并相应修改 AGENTS。
+- **CI 也不跑 Rust 单测**（`ci.yml` 只做类型检查与前端构建），所以 `cargo test
+  --manifest-path src-tauri/Cargo.toml` 要本地跑；`commands/launch.rs` 里的命令行参数筛选
+  就是靠它保证的（临时目录里建个真文件，验 argv[0] / 开关 / 引号 / 相对路径几个分支）。
 
 ## 安装包
 
@@ -284,6 +308,11 @@ git push origin v0.1.0
 - 开始菜单快捷方式建在 **All Users**
 - 注册表登记在 **HKLM**（`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\闪记`）
 - 安装与卸载都**需要管理员权限**，会弹 UAC
+- 注册 12 种扩展名的**文件关联**（`bundle.fileAssociations`）：安装时按 Tauri 的 NSIS 模板写
+  `HKLM\Software\Classes\.<ext>` 的默认值与 ProgID（`TemporaryRecorder.<x>`），
+  打开命令为 `"$INSTDIR\temporary-recorder.exe" "%1"`；卸载时从 `<ProgID>_backup` 恢复原值。
+  Windows 不允许安装包直接抢走默认程序（`UserChoice` 有校验），所以这里是「注册候选 +
+  应用内 帮助 ▸ 设为默认打开方式…」两条腿走路。
 
 静默安装 / 卸载（不带向导页，推荐用这个方式避免误改安装路径）：
 

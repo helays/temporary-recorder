@@ -7,7 +7,7 @@ import { useTabsStore } from "../stores/tabsStore";
 import type { ThemePref } from "../types/models";
 import { copySelection, cutSelection, pasteFromClipboard } from "./clipboard";
 import { openFileIntoNewTab, saveActiveTab, saveActiveTabAs } from "./fileActions";
-import { revealPath } from "./fileService";
+import { openDefaultAppsSettings, revealPath } from "./fileService";
 import { formatActiveTab, minifyActiveTab } from "./formatActions";
 import { cleanOrphanTempFiles, describeCleanup } from "./tempCleanup";
 import { effectiveTempDir } from "./tempFiles";
@@ -269,6 +269,14 @@ export function buildMenuSections(themePref: ThemePref): MenuSection[] {
           label: "使用说明",
           accelerator: "F1",
           run: () => useStatusStore.getState().setHelpOpen(true),
+        },
+        // 关联要靠安装包注册，但 Windows 保护用户自己选过的默认程序，
+        // 最后一步只能由用户在系统里点确认——这里负责把他送到那个页面
+        {
+          kind: "item",
+          id: "default-apps",
+          label: "设为默认打开方式…",
+          run: openDefaultAppsSettings,
         },
         { kind: "separator" },
         {

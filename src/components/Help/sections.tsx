@@ -90,6 +90,15 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               <K>Ctrl+O</K>，或 文件 ▸ 打开…
             </>,
             <>
+              双击打开：安装版会把闪记注册进 Windows 的「打开方式」候选，双击 JSON / YAML /
+              文本等文件即在新标签打开；闪记已在运行时<strong>复用同一个窗口</strong>，不新开进程。
+            </>,
+            <>
+              双击仍由别的程序打开时：Windows 会保护你自己选过的默认程序，
+              用 帮助 ▸ 设为默认打开方式… 打开系统的「默认应用」页，按文件类型把 json / yaml / txt
+              等改成闪记即可。
+            </>,
+            <>
               保存：<K>Ctrl+S</K>；另存为：<K>Ctrl+Shift+S</K>。
               新建标签的内容先落在临时目录，<K>Ctrl+S</K> 会直接问你要另存到哪。
             </>,

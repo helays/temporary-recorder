@@ -57,6 +57,17 @@ export function revealPath(path: string): Promise<void> {
   return invoke<void>("reveal_path", { path });
 }
 
+/**
+ * 打开 Windows 的「默认应用」设置页。
+ *
+ * Windows 10/11 用带校验的 UserChoice 保护用户自己选过的默认程序：
+ * 安装包（bundle.fileAssociations）只能把闪记写进候选列表，
+ * 最后一步必须由用户在系统里确认。与其让人自己翻设置，不如直接送过去。
+ */
+export function openDefaultAppsSettings(): Promise<void> {
+  return invoke<void>("open_default_apps_settings");
+}
+
 /** 打开/另存为对话框的过滤器 */
 const TEXT_FILTERS = [
   { name: "JSON", extensions: ["json"] },

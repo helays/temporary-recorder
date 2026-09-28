@@ -35,6 +35,43 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "fileAssociations": [
+      {
+        "ext": ["json", "jsonc"],
+        "name": "TemporaryRecorder.json",
+        "description": "JSON 文本（闪记）"
+      },
+      {
+        "ext": ["yaml", "yml"],
+        "name": "TemporaryRecorder.yaml",
+        "description": "YAML 文本（闪记）"
+      },
+      {
+        "ext": ["toml", "ini", "conf"],
+        "name": "TemporaryRecorder.config",
+        "description": "配置文件（闪记）"
+      },
+      {
+        "ext": ["txt", "log"],
+        "name": "TemporaryRecorder.text",
+        "description": "纯文本（闪记）"
+      },
+      {
+        "ext": ["md"],
+        "name": "TemporaryRecorder.markdown",
+        "description": "Markdown 文本（闪记）"
+      },
+      {
+        "ext": ["csv"],
+        "name": "TemporaryRecorder.csv",
+        "description": "CSV 表格（闪记）"
+      },
+      {
+        "ext": ["xml"],
+        "name": "TemporaryRecorder.xml",
+        "description": "XML 文本（闪记）"
+      }
+    ],
     "windows": {
       "nsis": {
         "installMode": "perMachine"
