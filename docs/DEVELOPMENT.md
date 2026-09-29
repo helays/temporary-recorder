@@ -86,6 +86,10 @@ pnpm tauri build      # 打包 release 安装包
   单独包一层：`searchKeymap` 里也有一条 `Mod-g`（面板内的「下一个匹配」），
   靠扩展顺序决定谁赢是运气，显式提高优先级才稳。`runtime/check-shortcuts.mjs` 直接断言
   「我们的绑定排在 CodeMirror 那条之前」——即 facet 扁平化后的下标大小。
+- 折叠四条（`Ctrl+Shift+[` / `Ctrl+Shift+]` 折叠 / 展开当前区域，`Ctrl+Alt+[` / `Ctrl+Alt+]`
+  全部折叠 / 展开）直接用原生的 `foldKeymap`，不自己重写绑定；窗口级兜底里
+  **按 `event.code` 判断**（`Shift+[` 的 `event.key` 是 `{`，按 key 会静默失效，
+  见 [PITFALLS.md 第 32 条](PITFALLS.md)）。
 - 焦点不在编辑器时由 `services/shortcuts.ts` 的窗口级兜底负责（`f` / `r` / `g` / `F1`），
   这是 README 一直承诺的行为；同一个脚本用 `window` 桩喂假事件验证这几个分支真的被走到。
 - 应用内帮助 = `components/Help/`（`sections.tsx` 是正文，`index.tsx` 是弹窗外壳，
@@ -167,6 +171,49 @@ Windows 写下的关联命令是 `"<exe>" "%1"`，被双击的文件就是**第 
   否则 `.py` 文件会被内容嗅探成 YAML；
 - 语言是异步加载的，`createEntry` 会**先加载完语法包再创建 EditorState**，
   避免「先无色后上色」的闪烁。
+
+### 折叠：一行 foldGutter，代价是 7.7 KB 首屏代码
+
+折叠是 CodeMirror 的原生能力，`@codemirror/language` 本来就在依赖里（首屏静态引用），
+所以这次**没有新增任何依赖**。但「不加依赖」不等于「没有代价」，首屏 JS 实测
+776.86 KB → **784.60 KB**（gzip 245.76 → 248.19 KB），约 **+7.7 KB**：
+
+- `foldGutter()` 那一行 + 四条键位绑定，用 A/B 构建（临时注掉这两处再构建）量到约 1.8 KB；
+- 其余约 5.9 KB 是 `foldCode` / `unfoldCode` / `foldAll` / `unfoldAll` 四个命令与
+  `foldable` / `foldState` / `foldedRanges` 的实现 —— `foldKeymap` 本身引用了这四个命令，
+  所以「不写菜单、不写包装方法」也省不下来，除非连原生键位都不要。
+
+考虑到折叠对 JSON / YAML 这类本应用的主场景是刚需，这个量级可以接受（gzip +2.4 KB）。
+要点：
+
+- `extensions/editorManager.ts` 的静态扩展里加一行 `foldGutter()`（它内部自带 `codeFolding()`，
+  不要再单独加一遍，重复安装同一个扩展没有意义）。位置紧跟 `lineNumbers()`：
+  gutter 顺序即扩展顺序，于是「行号 → 折叠标记 → 正文」与 VS Code 一致。
+- 键位直接用原生的 `foldKeymap`（`extensions/keymap.ts`）：`Ctrl+Shift+[` / `Ctrl+Shift+]`
+  折叠 / 展开当前区域，`Ctrl+Alt+[` / `Ctrl+Alt+]` 全部折叠 / 展开；查看菜单四项与之一一对应。
+  `services/shortcuts.ts` 里补了窗口级兜底（README 承诺「焦点不在编辑器里也生效」）。
+- **`foldGutter()` 必须放在语言 Compartment 之外**：折叠状态是 `foldState` 这个
+  StateField 的值，而 CodeMirror 重配置时只保留「前后都在配置里」的字段值。
+  放进语言 Compartment 的话，`applyLanguage`（按内容换语言）与超过 5 MB 的降级路径
+  （`reconfigure([])`）都得**记得每次都把它带上**，漏一条就静默丢折叠 —— 而这三条路径
+  分散在两个方法里，靠人记得补迟早会漏；放顶层静态扩展则任何 Compartment 重配置
+  都带不走它。三条断言（含一个「漏掉即丢」的反例）在 `runtime/check-folding.mjs` 里，
+  细节见 [PITFALLS.md 第 31 条](PITFALLS.md)。
+- **折叠依赖语法树**，因此能折叠的只有 lezer 语言：语言表 25 条里的 16 条
+  （JSON、YAML、JavaScript、JSX、TypeScript、TSX、Python、C / C++、Rust、Go、Java、
+  HTML、XML、CSS、SQL、Markdown；其中 Markdown 的标题区还有一条 `foldService`，
+  能折「一个标题下的整段」）。
+  `legacy-modes` 的 StreamLanguage（PowerShell / Shell / TOML / INI / Dockerfile / Lua /
+  Ruby / Perl / R）没有语法树，**一行都折不了**；超过 5 MB 被降级时同理。
+  这两种情况不需要写任何特判代码——`foldable()` 自然返回 null，槽位就不显示标记。
+  刻意保留槽位列（宽度由 `initialSpacer` 预留约 13px，与 VS Code 一致），
+  免得「有没有折叠」随语言闪烁、布局左右跳动。
+- 折叠状态**不落库**：它属于 `EditorState`，同一标签在会话内切换、乃至语言热切换后都还在
+  （因为字段在 Compartment 外），但重启后从全展开开始。要持久化就得往 `tabs` 加列或建新表，
+  与「保持轻」的定位不符，见 AGENTS.md 的表结构约定。
+- 外观上只补了一处：`@codemirror/language` 的 baseTheme 把折叠替身（`…`）写死成浅灰
+  （`#eee` 底 / `#888` 字），深色主题下很刺眼，因此 `extensions/theme.ts` 里用主题变量覆盖
+  `.cm-foldPlaceholder`，两套主题共用一份定义。
 
 ### 内容嗅探：先认代码特征，再认 JSON / YAML
 
@@ -300,6 +347,55 @@ git push origin v0.1.0
   --manifest-path src-tauri/Cargo.toml` 要本地跑；`commands/launch.rs` 里的命令行参数筛选
   就是靠它保证的（临时目录里建个真文件，验 argv[0] / 开关 / 引号 / 相对路径几个分支）。
 
+### 仓库元数据（About 与 topics）
+
+`description` 与 topics 都是**仓库设置**，不在仓库文件里——改代码、推提交都不会让它们生效，
+只能用网页 Settings 或 REST API 写（本机没装 `gh`，remote 还是 SSH，所以走 REST）。
+
+- **description**：「轻量级 Windows 桌面应用，用于临时记录、编辑、格式化文本内容。
+  定位是『快速打开、随手记录、随时关闭』——不是 IDE，也不是笔记软件。」（已设置，保持）
+- **homepage**：刻意留空。没有官网可指，指向 Releases 页反而像广告。
+- **topics**：19 个，**单一事实来源是 `.github/scripts/repo-topics.mjs` 里的 `TOPICS`**：
+
+  `windows-app` `desktop-app` `tauri` `tauri-v2` `rust` `react` `typescript` `vite`
+  `codemirror` `sqlite` `zustand` `tailwindcss` `text-editor` `notepad`
+  `note-taking` `scratchpad` `json` `yaml` `json-formatter`
+
+  四类各管一件事：**平台/外壳**（让人从「Windows 桌面应用」的角度找到）、**技术栈**
+  （每个都能在 `package.json` / `src-tauri/Cargo.toml` 里找到出处，不是凑数）、
+  **用途**（README 的定位：文本记录器，不是 IDE 也不是笔记软件）、
+  **格式化能力**（JSON / YAML）。刻意不用 `notepad-alternative`：全站只有 **9** 个仓库在用，
+  等于没有流量；`codemirror6` / `tauri-desktop` 这类自造词同理。
+
+写入与核对（① ② 是日常用的，③ 仅备忘）：
+
+```powershell
+# ① 离线校验 + 打印可粘贴的一行版（不联网、不需要 token），再贴到
+#    Settings ▸ General ▸ Topics
+node .github/scripts/repo-topics.mjs
+
+# ② 脚本写入：token 只从环境变量读（绝不从文件读、绝不打印），写完自动回读核对
+$env:GH_TOKEN = "<你的 PAT>"
+node .github/scripts/repo-topics.mjs --apply
+
+# ③ gh CLI（本机未装，仅备忘）：gh repo edit <owner/name> --add-topic <topic>
+
+# 核对现状（公开仓库不需要 token）
+node .github/scripts/repo-topics.mjs --check
+```
+
+几个坑：
+
+- **topics 不在仓库里**：提交代码、打 tag、跑 CI 都不会让它们出现，只有写 API 或网页才行。
+- **未认证的 search API 只有 10 次/分钟**：批量查 topic 热度会在第 3 次左右开始 403
+  （本次实测），要查就隔分钟来，或直接看 `github.com/topics/<name>` 页面。
+- **GitHub 会悄悄规范化**：大写转小写、非法字符替换成 `-`，于是「写进去的」和「清单里的」
+  会不一致，`--check` 每次都误报。所以 `repo-topics.mjs` 在**联网之前**就把这类清单判死
+  （大小写、首尾连字符、重复、超 20 个、超 50 字符）。
+- **写空数组会清空全部 topics**：脚本直接拒绝 `--apply` 一个空清单。
+
+脚本**不接进 CI**：改仓库元数据不该卡构建，CI 里也没有带写权限的 token。
+
 ## 安装包
 
 当前配置为**全机器安装**（`bundle.windows.nsis.installMode: "perMachine"`）：
@@ -363,6 +459,7 @@ git push origin v0.1.0
 | `measure-langs.ps1` / `measure-langs.mjs` | 四种内容各跑一遍，量应用与 WebView2 的内存、编辑器配色数、状态栏语言胶囊宽度；`.mjs` 负责备份 / 还原数据库与种入单标签会话 |
 | `check-highlight.ps1` | 数编辑器里**精确命中** `defaultHighlightStyle` 各 token 颜色的像素数，并量状态栏语言胶囊宽度；纯文本应为 0 个 token 像素。`-Override <lang>` 可同时验证手动指定语言优先于嗅探 |
 | `check-shortcuts.mjs` | 快捷键：keymap facet 里 `Mod-f`/`Mod-r`/`Mod-g`/`F1`/`F3` 的存在与优先级（`Mod-g` 指向 `gotoLine`、且排在 CodeMirror 那条之前）、`Mod-h` 已移除、菜单加速键、窗口级兜底的真实按键行为（用 `window` 桩喂假事件） |
+| `check-folding.mjs` | 折叠：16 条 lezer 语言各自「哪一行可折叠」、9 条 legacy 语言一行都折不了、折叠跨语言热切换（`languageCompartment.reconfigure`）不丢，以及四条键位存在于 keymap facet 且 `Ctrl-Shift-[` 的 `run` 就是 `foldCode` |
 | `check-scrollbar.mjs` | 滚动条规则是否进入产物：全局 8px 细滚动条（透明轨道、悬停浮现、无箭头、不与 `scrollbar-width` 混用）、编辑器 `.cm-scroller` 的 14px / `background-clip` 拇指 |
 | `check-scrollbar.ps1` | 像素级：种入长文档后量编辑器右缘 14px——默认 Chromium 轨道/拇指颜色像素必须为 0，且正文不得侵入该条（应用在跑时拒绝执行，需 `-Force`） |
 
@@ -454,7 +551,7 @@ temporary-recorder      25.9 MB 工作集
 - 若指**含 WebView2 全部辅助进程的总和**，则约 359 MB，**超出 80 MB 的目标**。
 
 这部分开销来自 WebView2 运行时本身，不是本项目代码造成的：前端产物仅
-**约 797 KB**（首屏 JS 775 KB + CSS 17 KB + 图标 5 KB；另有 23 个按需加载的语言 chunk，
+**约 809 KB**（首屏 JS 785 KB + CSS 19 KB + 图标 5 KB；另有按需加载的语言 chunk，
 合计约 600 KB，只有打开对应语言的文件时才会下载与解析）。
 CodeMirror 与 React 都常驻内存但占比很小。
 在「Tauri v2 + 系统 WebView2」这一技术选型下（本项目技术栈已定，不得更改），
@@ -464,18 +561,19 @@ CodeMirror 与 React 都常驻内存但占比很小。
 **语言高亮没有让首屏变大。** 用同一套工具链对三个版本各构建一次做 A/B
 （M19 用 `git worktree` 检出上一个提交来量，其余两次是同一工作区）：
 
-| 产物 | M19（无语言功能） | M20/M21（语言 + 跳转） | 现在（+ 嗅探 / 语言下拉 / 快捷键 / 帮助 / 滚动条） |
+| 产物 | M19（无语言功能） | M20/M21（语言 + 跳转） | 现在（+ 嗅探 / 语言下拉 / 快捷键 / 帮助 / 滚动条 / 折叠） |
 |---|---|---|---|
-| 首屏 JS | 769.77 KB | **768.59 KB** | 776.86 KB |
-| 首屏 JS（gzip） | 244.41 KB | 242.67 KB | 245.76 KB |
-| 首屏 CSS | 15.75 KB | 15.80 KB | 18.81 KB |
-| 按需 chunk | — | 23 个语言 chunk，约 600 KB | 同左 + 「使用说明」12.15 KB |
+| 首屏 JS | 769.77 KB | **768.59 KB** | 784.60 KB |
+| 首屏 JS（gzip） | 244.41 KB | 242.67 KB | 248.19 KB |
+| 首屏 CSS | 15.75 KB | 15.80 KB | 18.78 KB |
+| 按需 chunk | — | 23 个语言 chunk，约 600 KB | 同左 + 「使用说明」13.58 KB |
 
 M20/M21 反而小了 1.2 KB：原先 `@codemirror/lang-json` / `lang-yaml` 是静态导入、
 必然进首屏（其中 YAML 语法表本身就有 30 KB），现在被拆到按需 chunk 里。
-之后加的内容嗅探（一张正则表）、状态栏语言下拉、快捷键、帮助与滚动条共 +8.3 KB ——
+之后加的内容嗅探（一张正则表）、状态栏语言下拉、快捷键、帮助与滚动条共 +8.3 KB，
+本轮折叠再 +7.7 KB（明细见「折叠：一个 gutter，不需要新依赖」）——
 相对「把 25 个语法包塞进首屏」（约 600 KB）仍是小两个数量级。
-帮助正文一万多字，用 `React.lazy` 拆成独立 chunk（12.15 KB），**不按 F1 就不会加载**。
+帮助正文一万多字，用 `React.lazy` 拆成独立 chunk（13.58 KB），**不按 F1 就不会加载**。
 语法包各自只占内存，实测首次加载 25 种语言合计约 90–100 ms（都是一次性的，之后走缓存）。
 
 ### 语言高亮到底吃多少内存（实测）
@@ -562,7 +660,8 @@ WebView2 渲染进程的读数在 100–107 MB 之间来回摆（六进程私有
   的分隔符规则、Rust `impl` 里的类型名只算引用、JSX/TSX 的组件标签与解构参数）；
   1500 行 Python 实测解析 20ms / 首次建索引 3ms / 缓存后 0.01ms
   （索引按 `Tree` 对象缓存，文档一变自动失效）
-- **首屏 JS 没有变大**（A/B 构建，见「性能实测」）：769.77 KB → 768.59 KB → 776.86 KB
+- **首屏 JS**（A/B 构建，见「性能实测」）：769.77 KB → 768.59 KB → 776.86 KB →
+  784.60 KB（本轮折叠 +7.7 KB）
 - **内容嗅探**（`runtime/check-sniff.mjs`）：31 条正向、11 条负向、14 条冲突样本全过；
   负向里有「中文随笔」和「散文里出现 `const`/`SELECT`/`package` 关键词」，
   也有 64 KB 上限（特征在限制之外不算命中）
@@ -583,6 +682,17 @@ WebView2 渲染进程的读数在 100–107 MB 之间来回摆（六进程私有
   帮助第一项是「使用说明」且加速键为 `F1`；窗口级兜底用 `window` 桩喂假事件，
   验证 `Ctrl+F`/`Ctrl+R`/`Ctrl+G`/`F1` 真的走到对应动作、`Ctrl+H` 什么都不做、
   已 `preventDefault` 的事件被跳过、`dispose` 后监听器被摘掉
+- **折叠**（`runtime/check-folding.mjs`）：16 条 lezer 语言表项各自有可折叠的行，
+  并逐一钉住手工核对过的行号（JSON / YAML / Python / Markdown / HTML / XML / CSS / SQL /
+  JavaScript / JSX / TypeScript / TSX / C / C++ / Rust / Java 都是第 1 行，Go 是第 3 行）；
+  9 条 legacy 语言（PowerShell / Shell / TOML / INI / Dockerfile / Lua / Ruby / Perl / R）
+  **一行都折不了**（不是「没测」，是断言全为 null）；折叠范围是「`{` 之后到 `}` 之前」
+  （json 样例实测 `1-11`）；`foldEffect` → `foldedRanges` 1 段 → `unfoldEffect` 归零；
+  三条热切换断言——折叠在顶层时 `languageCompartment.reconfigure([])` 与装回语言后都不丢，
+  而放进 Compartment 且重配置漏掉它就会丢（反例，即 PITFALLS 第 31 条）；
+  四条键位在 keymap facet 里、`run` 与 `foldCode` / `unfoldCode` / `foldAll` / `unfoldAll`
+  函数同一。`check-shortcuts.mjs` 另补了查看菜单四项的加速键与窗口级兜底的四条按键
+  （含「只给 `key` 不给 `code` 就不触发」的反例）
 - **滚动条**：
   - 规则层（`runtime/check-scrollbar.mjs`，读产物并归一化压缩写法）：全局
     `::-webkit-scrollbar` 宽 8px、轨道与角落透明、拇指常显（token 色，不是 transparent）、
@@ -598,11 +708,14 @@ WebView2 渲染进程的读数在 100–107 MB 之间来回摆（六进程私有
     可见宽度 **8px**、左右各内缩 **3px**（14 − 3×2 的几何）。
     在真实运行的应用上（`runtime/inspect-window.ps1`，不种数据不杀进程）同一处
     读数为 **2400 像素 = 8px × 300 行**，默认轨道 0 像素
-- **首屏 JS**：776.86 KB（「使用说明」12.15 KB 走 `React.lazy` 独立 chunk，
-  不按 F1 不加载；M19 是 769.77 KB，语言功能那次反而小了 1.2 KB）
+- **首屏 JS**：784.60 KB（「使用说明」13.58 KB 走 `React.lazy` 独立 chunk，
+  不按 F1 不加载；M19 是 769.77 KB，其中本轮折叠 +7.7 KB）
 
 需要人工在界面上确认（无法脚本化）：
 
+- **折叠**：点行号旁的折叠槽折叠 / 展开、点 `…` 占位符展开；`Ctrl+Shift+[` / `Ctrl+Shift+]` /
+  `Ctrl+Alt+[` / `Ctrl+Alt+]` 四条键位与查看菜单四项；折叠后切到别的标签再切回来仍在；
+  浅色 / 深色主题下槽位标记与 `…` 占位符的观感（baseTheme 的浅灰已被主题变量覆盖）
 - **三个快捷键真的打开对应面板**：`Ctrl+F` / `Ctrl+R`（同一个搜索面板，焦点在搜索框）/
   `Ctrl+G`（转到行对话框，可写「行:列」）；`Ctrl+H` 无反应
 - **`F1` / 帮助 ▸ 使用说明**：弹窗渲染、左侧目录跳转、`Esc` 与点外部关闭

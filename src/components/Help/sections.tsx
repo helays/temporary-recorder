@@ -34,6 +34,8 @@ const SHORTCUTS: ReadonlyArray<readonly [string, string]> = [
   ["F3 / Shift+F3", "下一个 / 上一个匹配"],
   ["Shift+Alt+F", "格式化（按内容自动识别 JSON / YAML）"],
   ["Shift+Alt+M", "压缩（仅 JSON）"],
+  ["Ctrl+Shift+[ / Ctrl+Shift+]", "折叠 / 展开当前区域"],
+  ["Ctrl+Alt+[ / Ctrl+Alt+]", "全部折叠 / 全部展开"],
   ["Ctrl+D", "选下一个相同词"],
   ["Alt+Click", "多光标"],
   ["F12 / Ctrl+Click", "跳转到名字的定义（同一文件内）"],
@@ -216,6 +218,14 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               <strong>选择会记住</strong>，重启后仍然有效。优先级：手动选择 &gt; 文件名 &gt; 内容。
             </>,
             <>内容超过 5 MB 时会自动关闭语法高亮（状态栏会说明），保证输入不卡；缩回阈值内会自动恢复。</>,
+            <>
+              行号旁有折叠槽，点一下即可折叠 <K>{"{}"}</K> / <K>[]</K> 与缩进块；
+              <K>Ctrl+Shift+[</K> / <K>Ctrl+Shift+]</K> 折叠 / 展开当前区域，
+              <K>Ctrl+Alt+[</K> / <K>Ctrl+Alt+]</K> 全部折叠 / 展开（查看菜单里也有这四项）。
+              折叠<strong>依赖语法树</strong>，所以纯文本、TOML / INI / Shell / PowerShell /
+              Lua / Ruby / Perl / R / Dockerfile 这类 legacy 语言没有折叠，
+              超过 5 MB 被降级的内容也不会出现折叠标记；折叠状态不写数据库，重启后从全展开开始。
+            </>,
             <>语法包是按需加载的：没打开过的语言不占内存，也不会进首屏。</>,
           ]}
         />

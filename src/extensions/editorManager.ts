@@ -18,7 +18,16 @@ import {
   rectangularSelection,
   type Command,
 } from "@codemirror/view";
-import { bracketMatching, indentOnInput, indentUnit } from "@codemirror/language";
+import {
+  bracketMatching,
+  foldAll,
+  foldCode,
+  foldGutter,
+  indentOnInput,
+  indentUnit,
+  unfoldAll,
+  unfoldCode,
+} from "@codemirror/language";
 import { closeBrackets } from "@codemirror/autocomplete";
 import { history, redo, selectAll, undo } from "@codemirror/commands";
 import {
@@ -219,6 +228,14 @@ class EditorManager {
   ): Extension[] {
     return [
       lineNumbers(),
+      // 代码折叠。刻意放在这一层静态扩展里，**不要**跟着语言一起塞进
+      // languageCompartment：折叠状态是 foldState 这个 StateField 的值，
+      // CodeMirror 重配置时只保留「前后都在配置里」的字段值——一旦放进 Compartment，
+      // 换语言（applyLanguage）与大文件降级（reconfigure([])）这两条路径
+      // 就必须每次都记得带上它，漏一条用户的折叠就会被静默全部展开。
+      // 放顶层则任何 Compartment 重配置都带不走它（见 PITFALLS 第 31 条）。
+      // （foldGutter() 自带 codeFolding()，不要再单独加一遍。）
+      foldGutter(),
       highlightActiveLineGutter(),
       highlightSpecialChars(),
       history(),
@@ -620,6 +637,40 @@ class EditorManager {
   /** 全选 */
   selectAll(): boolean {
     return this.runCommand(selectAll);
+  }
+
+  /**
+   * 折叠类命令的统一入口。
+   * 命令返回 false 表示「当前行没有可折叠 / 已折叠的区域」，
+   * 这时只在状态栏给一条提示，不弹窗 —— 与跳转失败的处理方式一致。
+   * failure 传 null 表示这种空操作不值得打扰用户（全部折叠 / 展开）。
+   */
+  private runFoldCommand(command: Command, failure: string | null): boolean {
+    const handled = this.runCommand(command);
+    if (!handled && failure !== null) {
+      this.hooks?.onStatusMessage("info", failure);
+    }
+    return handled;
+  }
+
+  /** 折叠光标所在区域（查看 ▸ 折叠当前区域，Ctrl+Shift+[） */
+  foldAtCursor(): boolean {
+    return this.runFoldCommand(foldCode, "当前行没有可折叠的区域");
+  }
+
+  /** 展开光标所在区域（Ctrl+Shift+]） */
+  unfoldAtCursor(): boolean {
+    return this.runFoldCommand(unfoldCode, "当前行没有已折叠的区域");
+  }
+
+  /** 全部折叠（Ctrl+Alt+[） */
+  foldAll(): boolean {
+    return this.runFoldCommand(foldAll, null);
+  }
+
+  /** 全部展开（Ctrl+Alt+]） */
+  unfoldAll(): boolean {
+    return this.runFoldCommand(unfoldAll, null);
   }
 
   /** 当前选中的文本（多选区用换行拼接）；无选区时返回空串 */

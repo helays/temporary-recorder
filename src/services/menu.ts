@@ -256,6 +256,46 @@ export function buildMenuSections(themePref: ThemePref): MenuSection[] {
           run: minifyActiveTab,
         },
         { kind: "separator" },
+        // 折叠：键位用 CodeMirror 原生默认（见 extensions/keymap.ts 的 foldKeymap），
+        // 这里只是给它一个看得见的入口。折叠对「没有语法树」的内容无效：
+        // 纯文本、legacy 语言（TOML / INI / Shell …）与超过 5 MB 被降级的文档。
+        {
+          kind: "item",
+          id: "fold-at-cursor",
+          label: "折叠当前区域",
+          accelerator: "Ctrl+Shift+[",
+          run: () => {
+            editorManager.foldAtCursor();
+          },
+        },
+        {
+          kind: "item",
+          id: "unfold-at-cursor",
+          label: "展开当前区域",
+          accelerator: "Ctrl+Shift+]",
+          run: () => {
+            editorManager.unfoldAtCursor();
+          },
+        },
+        {
+          kind: "item",
+          id: "fold-all",
+          label: "全部折叠",
+          accelerator: "Ctrl+Alt+[",
+          run: () => {
+            editorManager.foldAll();
+          },
+        },
+        {
+          kind: "item",
+          id: "unfold-all",
+          label: "全部展开",
+          accelerator: "Ctrl+Alt+]",
+          run: () => {
+            editorManager.unfoldAll();
+          },
+        },
+        { kind: "separator" },
         themeSubmenu(themePref),
       ],
     },

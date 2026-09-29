@@ -49,6 +49,8 @@
 | | `Ctrl+1` … `Ctrl+9` | 切到第 N 个标签 |
 | 编辑 | `Ctrl+Z` / `Ctrl+Shift+Z` | 撤销 / 重做 |
 | | `Shift+Alt+F` / `Shift+Alt+M` | 格式化 / 压缩 JSON |
+| 折叠 | `Ctrl+Shift+[` / `Ctrl+Shift+]` | 折叠 / 展开当前区域 |
+| | `Ctrl+Alt+[` / `Ctrl+Alt+]` | 全部折叠 / 全部展开 |
 | 查找 | `Ctrl+F` / `Ctrl+R` | 搜索 / 替换（同一个面板） |
 | | `Ctrl+G` | 转到行（`行` 或 `行:列`；`Ctrl+Alt+G` 同样可用） |
 | | `F3` / `Shift+F3` | 下一个 / 上一个匹配 |
@@ -84,6 +86,13 @@
 > 内容超过 **5 MB** 会自动关闭语法高亮（状态栏会说明），缩回阈值内自动恢复。
 > 语法包按需加载：没打开过的语言不占内存，也不进首屏。详见
 > [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)（含内存与体积实测）。
+
+**折叠**：行号旁的折叠槽点一下即可折叠 `{}` / `[]` 与缩进块；
+`Ctrl+Shift+[` / `Ctrl+Shift+]` 折叠 / 展开光标所在区域，`Ctrl+Alt+[` / `Ctrl+Alt+]`
+全部折叠 / 全部展开（查看菜单里也有这四项）。折叠与语法高亮同源——**依赖语法树**，
+所以纯文本、TOML / INI / Shell / PowerShell / Lua / Ruby / Perl / R / Dockerfile
+这类没有语法树的 legacy 语言没有折叠，超过 5 MB 被降级的内容也不会出现折叠标记。
+折叠状态只在本次运行内保留（切标签不丢），不写数据库。
 
 ## 设置
 

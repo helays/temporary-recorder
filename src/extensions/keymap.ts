@@ -1,6 +1,7 @@
 import { Prec, type Extension } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import { defaultKeymap, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { foldKeymap } from "@codemirror/language";
 import { gotoLine, openSearchPanel } from "@codemirror/search";
 
 export interface AppKeymapHandlers {
@@ -30,6 +31,7 @@ export interface AppKeymapHandlers {
  * 未在此声明的按键（如 Ctrl+D 选下一个相同词、Alt+Click 多光标）继续走 CodeMirror 默认行为。
  *
  * 与搜索有关的三条：Ctrl+F（searchKeymap 自带）、Ctrl+R（这里补）、Ctrl+G（这里补，到行）。
+ * 与折叠有关的四条（Ctrl+Shift+[ / ]、Ctrl+Alt+[ / ]）由下面的 foldKeymap 提供。
  */
 export function appKeymap(handlers: AppKeymapHandlers): Extension {
   const run = (fn: () => void) => (): boolean => {
@@ -72,6 +74,12 @@ export function appKeymap(handlers: AppKeymapHandlers): Extension {
      * 显式提高优先级才稳。面板里的 F3 / Shift-F3 与 Ctrl+Alt+G 不受影响。
      */
     Prec.highest(keymap.of([{ key: "Mod-g", run: gotoLine, preventDefault: true }])),
+    /**
+     * 折叠键位，用 CodeMirror 的原生默认：
+     * Ctrl+Shift+[ / ] 折叠 / 展开光标所在区域，Ctrl+Alt+[ / ] 全部折叠 / 展开。
+     * 折叠能力由 editorManager 里的 foldGutter() 提供（含 codeFolding()）。
+     */
+    keymap.of(foldKeymap),
     keymap.of(defaultKeymap),
     keymap.of(historyKeymap),
     keymap.of([indentWithTab]),

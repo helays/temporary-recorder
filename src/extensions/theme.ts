@@ -32,6 +32,23 @@ const sharedChrome = EditorView.theme({
   ".cm-gutters": {
     border: "none",
   },
+  ".cm-foldGutter .cm-gutterElement": {
+    padding: "0 2px",
+    color: "var(--app-muted)",
+  },
+  ".cm-foldGutter .cm-gutterElement:hover": {
+    color: "var(--app-fg)",
+  },
+  // 折叠后替身的底色：@codemirror/language 的 baseTheme 把它写死成浅灰
+  // （#eee 底 / #ddd 边 / #888 字），深色主题下很刺眼；这里改走主题变量，两套主题共用一份定义
+  ".cm-foldPlaceholder": {
+    backgroundColor: "var(--app-hover)",
+    border: "1px solid var(--app-border)",
+    color: "var(--app-muted)",
+    borderRadius: "3px",
+    margin: "0 1px",
+    padding: "0 3px",
+  },
   "&.cm-focused": {
     outline: "none",
   },

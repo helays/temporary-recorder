@@ -21,6 +21,23 @@ export function installWindowShortcuts(): () => void {
     if (event.defaultPrevented) return;
 
     if (event.ctrlKey) {
+      // 折叠：Ctrl+Alt+[ / ] 全部折叠 / 全部展开。
+      // 必须按 event.code 判断——Shift+[ 的 event.key 是 "{"、Shift+] 是 "}"，
+      // 用 event.key 会静默失效。这里只认这两个 code，其余 Ctrl+Alt+* 组合
+      // 照旧落回下面的分支（不提前 return，免得顺手改掉现有行为）。
+      if (event.altKey) {
+        if (event.code === "BracketLeft") {
+          event.preventDefault();
+          editorManager.foldAll();
+          return;
+        }
+        if (event.code === "BracketRight") {
+          event.preventDefault();
+          editorManager.unfoldAll();
+          return;
+        }
+      }
+
       if (event.shiftKey) {
         if (event.key === "S" || event.key === "s") {
           event.preventDefault();
@@ -28,6 +45,14 @@ export function installWindowShortcuts(): () => void {
         } else if (event.key === "Tab") {
           event.preventDefault();
           void useTabsStore.getState().cycleTab(-1);
+        } else if (event.code === "BracketLeft") {
+          // Ctrl+Shift+[：折叠当前区域
+          event.preventDefault();
+          editorManager.foldAtCursor();
+        } else if (event.code === "BracketRight") {
+          // Ctrl+Shift+]：展开当前区域
+          event.preventDefault();
+          editorManager.unfoldAtCursor();
         }
         return;
       }

@@ -498,3 +498,40 @@ com.temporary.recorder\EBWebView`），第二个进程的 WebView2 环境创建�
 第二个进程只把 argv 转交给既有实例后退出；接收方把既有窗口调到前台。
 注意首启时窗口还没 `show()`（配置里 `visible: false`），所以只有
 `is_visible()` 为真才抢焦点，否则会把一个尚未完成首帧绘制的窗口以白屏弹出来。
+
+## 31. 折叠扩展放进语言 Compartment：一次重配置就把用户的折叠全展开
+
+**现象**：折叠功能刚加时，若把 `foldGutter()` 和语言一起塞进 `languageCompartment`，
+用户折好的区域会在某些时刻**静默全部展开**——最典型的是文档涨过 5 MB 触发降级
+（`reconfigure([])`）、以及语言按内容重新识别（`applyLanguage` 换成新的语言扩展）。
+
+**原因**：折叠状态不是普通变量，而是 `foldState` 这个 StateField 的值（一组装饰）。
+CodeMirror 重配置时**只保留「前后都在配置里」的字段值**：`@codemirror/state` 的
+`slot.reconfigure` 里写得很直白——`oldState.config.address[this.id] != null` 才
+`state.values[idx] = oldState.field(this)`，否则走 `this.create(state)` 从零初始化。
+字段一旦从新配置里消失（`reconfigure([])`）或新配置里没再带上它，值就随之丢掉。
+
+**一个反直觉的实测结论**（`runtime/check-folding.mjs` 里三条断言钉着）：
+只要重配置时**又带上了同一个 `foldState` 实例**，即使折叠扩展待在 Compartment 里，
+折叠也会被保留——因为 `codeFolding()` 每次都返回同一个模块级字段实例。
+所以真正的坑不是「放进 Compartment」，而是「某条重配置路径忘记了带上它」。
+本项目有三条这样的路径（换语言、降级、恢复），漏一条就是一个 bug。
+
+**修法**：把 `foldGutter()`（它内部就带 `codeFolding()`，不要重复加）放在
+`editorManager.buildExtensions` 的顶层静态扩展里，与语言 Compartment 无关；
+语言怎么换都带不走它，也就不需要每条路径都记得补一句。反例（漏掉即丢）与正例
+（顶层、语言卸掉后折叠仍在）都在 `runtime/check-folding.mjs` 里，改动这块先跑它。
+
+## 32. `Ctrl+Shift+[` 的 `event.key` 是 `{`，窗口级兜底必须按 `event.code` 判断
+
+**现象**：编辑器里 `Ctrl+Shift+[` 折叠正常（CodeMirror 的 keymap 会做键名归一化），
+但焦点在标签栏 / 状态栏时按同一个组合键毫无反应——补的窗口级兜底像没生效。
+
+**原因**：`services/shortcuts.ts` 的兜底是自己读 `KeyboardEvent` 的。在 US 布局上
+`Shift+[` 产出的 `event.key` 是 `{`（`Shift+]` 是 `}`），所以
+`event.key === "["` 这个写法**永远不成立**，而且不会报错。
+CodeMirror 之所以没事，是因为它用 `w3c-keyname` 把物理键位归一化成了 `[`。
+
+**修法**：兜底里按**物理键**的 `event.code` 判断（`BracketLeft` / `BracketRight`），
+不看 `event.key`。`runtime/check-shortcuts.mjs` 里两条断言一正一反：
+带 `code` 的假事件真的走到 `foldAtCursor`，而只给 `key: "{"` 的假事件**不会**误触发。
